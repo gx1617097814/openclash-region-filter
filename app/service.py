@@ -35,7 +35,9 @@ INDEX_HTML = r"""<!doctype html>
     section { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
     h2 { margin: 0; font-size: 16px; }
     .section-head { display: grid; gap: 6px; margin-bottom: 16px; }
-    .settings-layout { display: grid; grid-template-columns: 760px 520px; gap: 32px; align-items: start; justify-content: start; }
+    .lower-grid { display: grid; grid-template-columns: minmax(0, 760px) minmax(360px, 1fr); gap: 16px; align-items: stretch; }
+    .lower-grid section { margin-bottom: 0; }
+    .settings-layout { display: grid; gap: 22px; align-items: start; justify-content: start; }
     .settings-stack { display: grid; gap: 14px; min-width: 0; }
     .settings-side { display: grid; grid-template-columns: 140px 360px; gap: 14px 16px; align-items: end; min-width: 0; }
     .field { display: grid; gap: 7px; min-width: 0; }
@@ -68,13 +70,14 @@ INDEX_HTML = r"""<!doctype html>
     .count { color: var(--muted); font-size: 12px; }
     .bad { color: #b42318; }
     .ok { color: #087443; }
-    pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; max-height: 360px; overflow: auto; font-size: 12px; }
+    .result-section { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 430px; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; min-height: 0; overflow: auto; font-size: 12px; }
     .nodes { color: var(--muted); font-size: 12px; line-height: 1.45; height: 86px; overflow: auto; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 12px; background: #f8fafc; }
     @media (max-width: 1380px) {
-      .settings-layout { grid-template-columns: minmax(0, 760px); }
-      .settings-side { grid-template-columns: 140px 360px; }
+      .lower-grid { grid-template-columns: 1fr; }
+      .result-section { min-height: 360px; }
     }
     @media (max-width: 860px) {
       .settings-layout, .settings-side { grid-template-columns: 1fr; }
@@ -101,61 +104,63 @@ INDEX_HTML = r"""<!doctype html>
   </header>
   <main>
     <section>
-      <div class="section-head">
-        <h2>运行设置</h2>
-        <p class="hint">订阅更新后会自动过滤，日常主要调整地区开关。</p>
-      </div>
-      <div class="settings-layout">
-        <div class="settings-stack">
-          <div class="field">
-            <label>配置文件路径</label>
-            <div class="input-row path-row">
-              <input id="config_path" type="text">
-              <select id="config_file_select" onchange="selectConfigFile()"></select>
-              <button class="neutral" onclick="loadConfigFiles()" type="button">刷新文件</button>
-            </div>
-          </div>
-          <div class="field">
-            <label>重载命令</label>
-            <div class="input-row command-row">
-              <input id="reload_command" type="text">
-              <button class="neutral" onclick="reloadOpenClash()" type="button">一键重载</button>
-            </div>
-          </div>
-        </div>
-        <div class="settings-side">
-          <div class="field"><label>轮询间隔</label><input id="poll_seconds" type="number" min="5"></div>
-          <div class="field">
-            <label>运行态验证 API</label>
-            <div class="input-row api-row">
-              <input id="dashboard_api" type="text">
-              <button class="neutral" onclick="openDashboardApi()" type="button">打开</button>
-            </div>
-          </div>
-          <div class="field full">
-            <label>验证密钥</label>
-            <input id="dashboard_secret" type="password" placeholder="可留空">
-          </div>
-          <div class="field full"><p class="hint">运行态验证 API 只用于检查 OpenClash 当前运行节点；不影响过滤本身。通常保持默认即可。</p></div>
-        </div>
-      </div>
-      <div class="settings-actions">
-        <label><input id="automation_enabled" type="checkbox"> 自动监听配置变化</label>
-        <label><input id="allow_unknown" type="checkbox"> 允许未知地区节点</label>
-        <label><input id="verify_api" type="checkbox"> 应用后运行态验证</label>
-        <button class="secondary" onclick="saveSettings()">保存设置</button>
-      </div>
-    </section>
-
-    <section>
       <h2>地区规则</h2>
       <div id="regions" class="regions"></div>
     </section>
 
-    <section>
-      <h2>最近结果</h2>
-      <pre id="result">暂无</pre>
-    </section>
+    <div class="lower-grid">
+      <section>
+        <div class="section-head">
+          <h2>运行设置</h2>
+          <p class="hint">订阅更新后会自动过滤，日常主要调整地区开关。</p>
+        </div>
+        <div class="settings-layout">
+          <div class="settings-stack">
+            <div class="field">
+              <label>配置文件路径</label>
+              <div class="input-row path-row">
+                <input id="config_path" type="text">
+                <select id="config_file_select" onchange="selectConfigFile()"></select>
+                <button class="neutral" onclick="loadConfigFiles()" type="button">刷新文件</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>重载命令</label>
+              <div class="input-row command-row">
+                <input id="reload_command" type="text">
+                <button class="neutral" onclick="reloadOpenClash()" type="button">一键重载</button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-side">
+            <div class="field"><label>轮询间隔</label><input id="poll_seconds" type="number" min="5"></div>
+            <div class="field">
+              <label>运行态验证 API</label>
+              <div class="input-row api-row">
+                <input id="dashboard_api" type="text">
+                <button class="neutral" onclick="openDashboardApi()" type="button">打开</button>
+              </div>
+            </div>
+            <div class="field full">
+              <label>验证密钥</label>
+              <input id="dashboard_secret" type="password" placeholder="可留空">
+            </div>
+            <div class="field full"><p class="hint">运行态验证 API 只用于检查 OpenClash 当前运行节点；不影响过滤本身。通常保持默认即可。</p></div>
+          </div>
+        </div>
+        <div class="settings-actions">
+          <label><input id="automation_enabled" type="checkbox"> 自动监听配置变化</label>
+          <label><input id="allow_unknown" type="checkbox"> 允许未知地区节点</label>
+          <label><input id="verify_api" type="checkbox"> 应用后运行态验证</label>
+          <button class="secondary" onclick="saveSettings()">保存设置</button>
+        </div>
+      </section>
+
+      <section class="result-section">
+        <h2>最近结果</h2>
+        <pre id="result">暂无</pre>
+      </section>
+    </div>
   </main>
 <script>
 let state = null;
