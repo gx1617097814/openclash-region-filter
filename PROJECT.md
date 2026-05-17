@@ -81,6 +81,8 @@ ROUTER_HOST=192.168.2.1 scripts/install-router-ssh-key.sh
 
 这一步会要求输入一次路由器 root 密码。之后每次更新完代码，只需要在本项目根目录运行：
 
+安装脚本会同时写入普通 Linux 常用的 `~/.ssh/authorized_keys` 和 OpenWrt/iStoreOS Dropbear 常用的 `/etc/dropbear/authorized_keys`，避免不同 SSH 服务读取位置不一致。
+
 ```sh
 ROUTER_HOST=192.168.2.1 scripts/deploy-to-istoreos.sh
 ```
