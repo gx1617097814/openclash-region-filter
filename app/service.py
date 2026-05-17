@@ -31,18 +31,19 @@ INDEX_HTML = r"""<!doctype html>
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f9fb; color: #111827; }
     header { padding: 18px 22px; background: #ffffff; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     h1 { margin: 0; font-size: 20px; font-weight: 650; }
-    main { padding: 18px 22px 32px; max-width: 1220px; margin: 0 auto; }
+    main { padding: 18px 22px 32px; max-width: 1360px; margin: 0 auto; }
     section { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
     h2 { margin: 0; font-size: 16px; }
-    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-    .settings-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, .8fr); gap: 18px 22px; align-items: start; }
+    .section-head { display: grid; gap: 6px; margin-bottom: 16px; }
+    .settings-layout { display: grid; grid-template-columns: 760px 520px; gap: 32px; align-items: start; justify-content: start; }
     .settings-stack { display: grid; gap: 14px; min-width: 0; }
-    .settings-side { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 14px; align-items: end; min-width: 0; }
+    .settings-side { display: grid; grid-template-columns: 140px 360px; gap: 14px 16px; align-items: end; min-width: 0; }
     .field { display: grid; gap: 7px; min-width: 0; }
     .field.full { grid-column: 1 / -1; }
     .input-row { display: grid; gap: 8px; align-items: center; min-width: 0; }
-    .path-row { grid-template-columns: minmax(260px, 1fr) minmax(180px, 260px) auto; }
-    .command-row, .api-row { grid-template-columns: minmax(260px, 1fr) auto; }
+    .path-row { grid-template-columns: 360px 260px 112px; }
+    .command-row { grid-template-columns: 628px 112px; }
+    .api-row { grid-template-columns: 280px 72px; }
     .input-row input, .input-row select { min-width: 0; }
     label { font-size: 13px; color: #334155; }
     input[type="text"], input[type="number"], input[type="password"], select { border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; font-size: 14px; width: 100%; height: 40px; box-sizing: border-box; background: #fff; color: #111827; }
@@ -71,7 +72,11 @@ INDEX_HTML = r"""<!doctype html>
     .nodes { color: var(--muted); font-size: 12px; line-height: 1.45; height: 86px; overflow: auto; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 12px; background: #f8fafc; }
-    @media (max-width: 760px) {
+    @media (max-width: 1380px) {
+      .settings-layout { grid-template-columns: minmax(0, 760px); }
+      .settings-side { grid-template-columns: 140px 360px; }
+    }
+    @media (max-width: 860px) {
       .settings-layout, .settings-side { grid-template-columns: 1fr; }
       .path-row, .command-row, .api-row { grid-template-columns: 1fr; }
       header { align-items: flex-start; flex-direction: column; }
@@ -98,7 +103,7 @@ INDEX_HTML = r"""<!doctype html>
     <section>
       <div class="section-head">
         <h2>运行设置</h2>
-        <span class="hint">订阅更新后自动过滤，日常只需要调整地区开关。</span>
+        <p class="hint">订阅更新后会自动过滤，日常主要调整地区开关。</p>
       </div>
       <div class="settings-layout">
         <div class="settings-stack">
