@@ -37,6 +37,7 @@ INDEX_HTML = r"""<!doctype html>
     .section-head { display: grid; gap: 6px; margin-bottom: 16px; }
     .lower-grid { display: grid; grid-template-columns: minmax(0, 760px) minmax(360px, 1fr); gap: 16px; align-items: stretch; }
     .lower-grid section { margin-bottom: 0; }
+    .settings-section { min-height: 0; }
     .settings-layout { display: grid; gap: 22px; align-items: start; justify-content: start; }
     .settings-stack { display: grid; gap: 14px; min-width: 0; }
     .settings-side { display: grid; grid-template-columns: 140px 360px; gap: 14px 16px; align-items: end; min-width: 0; }
@@ -70,14 +71,14 @@ INDEX_HTML = r"""<!doctype html>
     .count { color: var(--muted); font-size: 12px; }
     .bad { color: #b42318; }
     .ok { color: #087443; }
-    .result-section { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 430px; }
+    .result-section { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; overflow: hidden; }
     pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; min-height: 0; overflow: auto; font-size: 12px; }
     .nodes { color: var(--muted); font-size: 12px; line-height: 1.45; height: 86px; overflow: auto; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 12px; background: #f8fafc; }
     @media (max-width: 1380px) {
       .lower-grid { grid-template-columns: 1fr; }
-      .result-section { min-height: 360px; }
+      .result-section { height: 360px; }
     }
     @media (max-width: 860px) {
       .settings-layout, .settings-side { grid-template-columns: 1fr; }
@@ -109,7 +110,7 @@ INDEX_HTML = r"""<!doctype html>
     </section>
 
     <div class="lower-grid">
-      <section>
+      <section class="settings-section">
         <div class="section-head">
           <h2>运行设置</h2>
           <p class="hint">订阅更新后会自动过滤，日常主要调整地区开关。</p>
