@@ -26,6 +26,8 @@ openclash-region-filter/
   wheels/                 # 离线 PyYAML wheel
   scripts/
     deploy-ocfilter.sh    # iStoreOS 离线/半离线部署脚本
+    deploy-to-istoreos.sh # 本机一键打包、上传、部署
+    package.sh            # 生成部署 tar 包
   artifacts/              # 本地构建产物目录，不纳入 Git
   Dockerfile
   docker-compose.yml
@@ -68,6 +70,35 @@ openclash-region-filter
 - `-v /overlay/upper/opt/openclash-region-filter-data:/data`
 
 这些参数是为了让容器读取 OpenClash 配置，并通过 `nsenter` 重启宿主机上的 OpenClash。
+
+## 推荐的快速部署方式
+
+后续版本更新建议走 SSH 一键部署，不再使用 LuCI/ttyd 网页终端。首次使用前，把本机 SSH key 安装到路由器：
+
+```sh
+ROUTER_HOST=192.168.2.1 scripts/install-router-ssh-key.sh
+```
+
+这一步会要求输入一次路由器 root 密码。之后每次更新完代码，只需要在本项目根目录运行：
+
+```sh
+ROUTER_HOST=192.168.2.1 scripts/deploy-to-istoreos.sh
+```
+
+这个命令会自动完成：
+
+1. 打包当前项目到 `artifacts/openclash-region-filter.tar.gz`。
+2. 通过 `scp` 上传 tar 包和部署脚本到 iStoreOS。
+3. 通过 `ssh` 在路由器上重建 `openclash-region-filter:local` 镜像。
+4. 重启 `openclash-region-filter` 容器。
+5. 检查 `http://路由器IP:8088/api/state` 是否可访问。
+
+前提条件：
+
+- 路由器 SSH 可用。
+- 路由器 Docker 可用。
+- 路由器已经有 `alpine-local` 镜像；本次现场部署已经创建过。
+- 如果换新路由器或清空 Docker，需要先重新导入 Alpine rootfs，或改造成可拉取基础镜像的部署方式。
 
 ## 运行设置
 
@@ -115,11 +146,7 @@ python3 -m unittest discover -s tests -v
 重新打包源码供路由器下载：
 
 ```sh
-tar --exclude 'openclash-region-filter/data' \
-  --exclude 'openclash-region-filter/.git' \
-  --exclude 'openclash-region-filter/artifacts' \
-  -czf openclash-region-filter/artifacts/openclash-region-filter.tar.gz \
-  openclash-region-filter
+scripts/package.sh
 ```
 
 如果要给路由器下载，可以在项目根目录启动临时 HTTP 服务：

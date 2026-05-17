@@ -5,7 +5,7 @@
 ## 功能
 
 - Web 面板显示当前配置里的所有地区和节点数量
-- 勾选允许地区、排除地区
+- 通过地区开关启用或禁用节点地区
 - 自动监听配置文件变化，适配 OpenClash 自动更新
 - 原子写回配置文件，并在写回前自动备份
 - 自动重启 OpenClash
@@ -56,6 +56,20 @@ nsenter -t 1 -m -u -i -n -p -- /etc/init.d/openclash restart
 ```
 
 这是给 Docker 部署准备的：容器会使用宿主机 PID namespace 和 privileged 权限进入宿主机命名空间重启 OpenClash。
+
+## 快速部署到 iStoreOS
+
+首次配置免密 SSH：
+
+```sh
+ROUTER_HOST=192.168.2.1 scripts/install-router-ssh-key.sh
+```
+
+之后每次更新版本：
+
+```sh
+ROUTER_HOST=192.168.2.1 scripts/deploy-to-istoreos.sh
+```
 
 ## 推荐 OpenClash 设置
 
