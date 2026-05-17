@@ -55,14 +55,14 @@ INDEX_HTML = r"""<!doctype html>
     .settings-actions label { white-space: nowrap; }
     .hint { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 0; }
     .regions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: stretch; }
-    .region { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; grid-template-rows: 56px 86px; gap: 10px; min-height: 164px; }
+    .region { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; grid-template-rows: 48px 86px; gap: 8px; min-height: 154px; }
     .region-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
     .region-title { min-width: 0; }
     .region-title strong { display: block; font-size: 16px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .region-actions { display: grid; justify-items: end; gap: 5px; min-width: 62px; }
-    .region-state { color: var(--muted); font-size: 12px; line-height: 1.2; white-space: nowrap; }
-    button.region-toggle { width: 54px; height: 30px; border: 0; border-radius: 999px; padding: 3px; background: #cbd5e1; display: inline-flex; align-items: center; justify-content: flex-start; transition: background .16s ease; }
-    button.region-toggle::after { content: ""; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(15, 23, 42, .2); transition: transform .16s ease; }
+    .region-actions { display: grid; justify-items: end; gap: 2px; min-width: 52px; }
+    .region-state { color: var(--muted); font-size: 12px; line-height: 1.1; white-space: nowrap; }
+    button.region-toggle { width: 48px; height: 24px; min-height: 24px; border: 0; border-radius: 999px; padding: 2px; background: #cbd5e1; display: inline-flex; align-items: center; justify-content: flex-start; transition: background .16s ease; }
+    button.region-toggle::after { content: ""; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(15, 23, 42, .2); transition: transform .16s ease; }
     button.region-toggle.on { background: var(--green); }
     button.region-toggle.on::after { transform: translateX(24px); }
     .count { color: var(--muted); font-size: 12px; }
