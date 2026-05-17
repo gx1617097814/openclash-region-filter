@@ -95,6 +95,8 @@ ROUTER_HOST=192.168.2.1 scripts/deploy-to-istoreos.sh
 4. 重启 `openclash-region-filter` 容器。
 5. 检查 `http://路由器IP:8088/api/state` 是否可访问。
 
+如果路由器上已经存在 `openclash-region-filter:local` 镜像，部署脚本会复用该镜像作为构建基底，只替换应用代码，避免每次重新安装 Python 依赖。只有首次部署或镜像被删除时，才会回退到 `alpine-local` 并安装依赖。
+
 前提条件：
 
 - 路由器 SSH 可用。

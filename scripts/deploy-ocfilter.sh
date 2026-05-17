@@ -1,13 +1,14 @@
 #!/bin/sh
 set -eu
 
-APP_TAR=/tmp/openclash-region-filter.tar.gz
+APP_TAR=${APP_TAR:-/tmp/openclash-region-filter.tar.gz}
 FILE_HOST=${FILE_HOST:-192.168.2.190}
 IMAGE=openclash-region-filter:local
+BASE_IMAGE=${BASE_IMAGE:-}
 BUILD=ocfilter-build
 RUN=openclash-region-filter
 DATA=/overlay/upper/opt/openclash-region-filter-data
-PORT=8088
+PORT=${PORT:-8088}
 
 echo "== OpenClash region filter deploy =="
 date
@@ -18,13 +19,21 @@ fi
 
 mkdir -p "$DATA"
 
-if ! docker image inspect alpine-local >/dev/null 2>&1; then
-  echo "missing alpine-local image"
+if [ -z "$BASE_IMAGE" ]; then
+  if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    BASE_IMAGE=$IMAGE
+  else
+    BASE_IMAGE=alpine-local
+  fi
+fi
+
+if ! docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
+  echo "missing base image: $BASE_IMAGE"
   exit 1
 fi
 
 if ! docker ps -a --format '{{.Names}}' | grep -qx "$BUILD"; then
-  docker run -d --name "$BUILD" alpine-local sleep 3600
+  docker run -d --name "$BUILD" "$BASE_IMAGE" sleep 3600
 elif ! docker ps --format '{{.Names}}' | grep -qx "$BUILD"; then
   docker start "$BUILD"
 fi
