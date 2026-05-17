@@ -1,0 +1,147 @@
+# OpenClash Region Filter 项目说明
+
+## 背景
+
+这个项目用于解决 OpenClash 订阅自动更新后的节点地区过滤问题。目标是在不使用第三方订阅转换服务、不外传订阅地址的前提下，在本地读取 OpenClash 已生成的 YAML 配置，只保留指定地区节点，并自动重启 OpenClash 生效。
+
+当前默认策略是允许新加坡、美国、日本、韩国、印尼节点，排除香港节点。实际订阅里如果暂时没有韩国或印尼节点，面板会显示为 0，后续订阅更新出现后会自动保留。
+
+## 功能
+
+- 提供 Web 面板，默认监听 `0.0.0.0:8088`。
+- 扫描 OpenClash 配置文件中的节点，按地区显示节点数量和节点名。
+- 支持在面板中勾选允许地区、排除地区。
+- 自动监听配置文件变更，适配 OpenClash 的“自动更新配置文件”。
+- 过滤 inline `proxies`，并同步重写 `proxy-groups` 中的节点引用。
+- 写回前自动备份原始配置到 `.region-filter-backups/`。
+- 写回后可执行 OpenClash 重载命令。
+- 可选使用 OpenClash Dashboard API 验证运行中的节点列表。
+
+## 项目结构
+
+```text
+openclash-region-filter/
+  app/                    # 服务端与过滤逻辑
+  tests/                  # 单元测试
+  wheels/                 # 离线 PyYAML wheel
+  scripts/
+    deploy-ocfilter.sh    # iStoreOS 离线/半离线部署脚本
+  artifacts/              # 本地构建产物目录，不纳入 Git
+  Dockerfile
+  docker-compose.yml
+  README.md
+  PROJECT.md
+```
+
+## Docker 部署方式
+
+常规环境可以直接在项目根目录运行：
+
+```sh
+docker compose up -d --build
+```
+
+然后访问：
+
+```text
+http://路由器IP:8088
+```
+
+iStoreOS 上如果 Docker Hub 拉取不稳定，可以使用本项目的现场部署脚本。先在本机项目目录通过 HTTP 暴露 `openclash-region-filter.tar.gz`，并在路由器上提前准备 `alpine-local` 镜像，然后运行：
+
+```sh
+FILE_HOST=192.168.2.190 sh /tmp/deploy-ocfilter.sh
+```
+
+`FILE_HOST` 是提供 tar 包下载的内网主机地址，不带协议头时更适合 BusyBox `wget` 场景。脚本会创建并启动容器：
+
+```text
+openclash-region-filter
+```
+
+默认容器参数包括：
+
+- `--network host`
+- `--pid host`
+- `--privileged`
+- `-v /etc/openclash:/etc/openclash`
+- `-v /overlay/upper/opt/openclash-region-filter-data:/data`
+
+这些参数是为了让容器读取 OpenClash 配置，并通过 `nsenter` 重启宿主机上的 OpenClash。
+
+## 运行设置
+
+默认配置文件路径：
+
+```text
+/etc/openclash/config/猎户座.yaml
+```
+
+默认重载命令：
+
+```sh
+nsenter -t 1 -m -u -i -n -p -- /etc/init.d/openclash restart
+```
+
+如果 OpenClash Dashboard 开启了密钥，面板中的“控制面板密钥”必须填写，否则运行态验证会返回 `401 Unauthorized`。这不会影响文件过滤本身，只会影响“运行中节点列表”的 API 验证。
+
+## 已验证状态
+
+本次部署后，面板可通过以下地址访问：
+
+```text
+http://192.168.2.1:8088
+```
+
+当时扫描到的节点分布：
+
+- 美国：6 个
+- 日本：5 个
+- 新加坡：4 个
+- 韩国：0 个
+- 印尼：0 个
+- 香港：0 个
+
+执行一次立即过滤后，配置中未发现香港或未知地区节点，当前配置已经符合默认规则。
+
+## 开发和测试
+
+运行单元测试：
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+重新打包源码供路由器下载：
+
+```sh
+tar --exclude 'openclash-region-filter/data' \
+  --exclude 'openclash-region-filter/.git' \
+  --exclude 'openclash-region-filter/artifacts' \
+  -czf openclash-region-filter/artifacts/openclash-region-filter.tar.gz \
+  openclash-region-filter
+```
+
+如果要给路由器下载，可以在项目根目录启动临时 HTTP 服务：
+
+```sh
+python3 -m http.server 80 --bind 0.0.0.0
+```
+
+## 这次踩过的坑
+
+- iStoreOS 路由器宿主机没有 Python，不能直接在宿主机跑脚本，必须放进 Docker 或改用 OpenClash 原生规则。
+- iStoreOS 的网页终端 ttyd 输入长命令很不稳定，粘贴不可用时逐字符输入非常慢。
+- ttyd/输入法环境里冒号 `:` 容易被转换或输入异常，尽量避免需要 `http://host:port/...` 的命令。
+- BusyBox `wget` 在本次环境里使用 `192.168.2.190/file` 比 `http://192.168.2.190:18089/file` 更稳定。
+- Docker Hub 拉取不可靠时，可以本地下载 Alpine rootfs，再在路由器上 `docker import` 成 `alpine-local`。
+- 构建容器如果中途停止，续跑脚本要先 `docker start`，不能假设容器存在就一定在运行。
+- OpenClash Dashboard API 如果配置了 secret，未填写密钥时 `/proxies` 会返回 401。这不是过滤失败，而是验证权限不足。
+- 过滤器面板当前没有登录认证，只建议在可信内网访问，或者后续加 LuCI 反代认证。
+
+## 建议事项
+
+- 后续开发都基于本目录：`/Users/80399017/Workplace/releases/openclash-region-filter`。
+- 不要把真实订阅 YAML、OpenClash 配置、Dashboard secret 或订阅 URL 提交进 Git。
+- 优先通过 `http://路由器IP:8088` 面板或 API 操作，不再依赖网页终端做长时间部署。
+- 如果要继续增强，建议优先做三件事：面板认证、Dashboard secret 的安全保存、支持 `proxy-providers` provider 文件过滤。

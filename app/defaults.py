@@ -1,0 +1,90 @@
+from __future__ import annotations
+
+DEFAULT_CONFIG = {
+    "openclash": {
+        "config_path": "/etc/openclash/config/猎户座.yaml",
+        "runtime_config_path": "/etc/openclash/猎户座.yaml",
+        "reload_command": "nsenter -t 1 -m -u -i -n -p -- /etc/init.d/openclash restart",
+        "dashboard_api": "http://127.0.0.1:9090",
+        "dashboard_secret": "",
+        "verify_api": True,
+    },
+    "automation": {
+        "enabled": True,
+        "apply_on_start": False,
+        "poll_seconds": 30,
+        "settle_seconds": 3,
+    },
+    "filter": {
+        "allow_unknown": False,
+        "enabled_regions": [
+            "singapore",
+            "united_states",
+            "japan",
+            "south_korea",
+            "indonesia",
+        ],
+        "excluded_regions": ["hong_kong"],
+    },
+    "regions": [
+        {
+            "id": "singapore",
+            "label": "新加坡",
+            "patterns": ["🇸🇬", "狮城", "新加坡", "Singapore", "\\bSG\\b"],
+        },
+        {
+            "id": "united_states",
+            "label": "美国",
+            "patterns": [
+                "🇺🇸",
+                "美国",
+                "美國",
+                "西美",
+                "United States",
+                "\\bUSA\\b",
+                "\\bUS\\b",
+                "洛杉矶",
+                "洛杉磯",
+                "纽约",
+                "紐約",
+                "西雅图",
+                "西雅圖",
+                "圣何塞",
+                "聖何塞",
+                "达拉斯",
+                "達拉斯",
+                "芝加哥",
+                "硅谷",
+            ],
+        },
+        {
+            "id": "japan",
+            "label": "日本",
+            "patterns": ["🇯🇵", "日本", "东京", "東京", "大阪", "Japan", "\\bJP\\b"],
+        },
+        {
+            "id": "south_korea",
+            "label": "韩国",
+            "patterns": ["🇰🇷", "韩国", "韓國", "首尔", "首爾", "Korea", "\\bKR\\b"],
+        },
+        {
+            "id": "indonesia",
+            "label": "印尼",
+            "patterns": [
+                "🇮🇩",
+                "印尼",
+                "印度尼西亚",
+                "印度尼西亞",
+                "Indonesia",
+                "雅加达",
+                "雅加達",
+                "\\bID\\b",
+            ],
+        },
+        {
+            "id": "hong_kong",
+            "label": "香港",
+            "patterns": ["🇭🇰", "香港", "香江", "Hong\\s*Kong", "\\bHK\\b", "\\bHKG\\b"],
+        },
+    ],
+}

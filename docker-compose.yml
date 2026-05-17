@@ -1,0 +1,13 @@
+services:
+  openclash-region-filter:
+    build: .
+    container_name: openclash-region-filter
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    privileged: true
+    volumes:
+      - ./data:/data
+      - /etc/openclash:/etc/openclash
+    environment:
+      TZ: Asia/Shanghai
