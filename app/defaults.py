@@ -16,7 +16,7 @@ DEFAULT_CONFIG = {
         "settle_seconds": 3,
     },
     "filter": {
-        "allow_unknown": False,
+        "allow_unknown": True,
         "enabled_regions": [
             "singapore",
             "united_states",
@@ -24,7 +24,7 @@ DEFAULT_CONFIG = {
             "south_korea",
             "indonesia",
         ],
-        "excluded_regions": ["hong_kong"],
+        "excluded_regions": ["hong_kong", "china_mainland"],
     },
     "regions": [
         {
@@ -85,6 +85,22 @@ DEFAULT_CONFIG = {
             "id": "hong_kong",
             "label": "香港",
             "patterns": ["🇭🇰", "香港", "香江", "Hong\\s*Kong", "\\bHK\\b", "\\bHKG\\b"],
+        },
+        {
+            "id": "china_mainland",
+            "label": "大陆",
+            "patterns": [
+                "🇨🇳",
+                "中国",
+                "中國",
+                "大陆",
+                "大陸",
+                "内地",
+                "內地",
+                "China",
+                "Mainland",
+                "\\bCN\\b",
+            ],
         },
     ],
 }

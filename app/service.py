@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import subprocess
 import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .config import ConfigStore
 from .filtering import apply_filter, scan_regions
@@ -25,40 +26,55 @@ INDEX_HTML = r"""<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OpenClash 地区过滤</title>
   <style>
-    :root { color-scheme: light dark; --accent: #0f766e; --line: #d7dee6; --muted: #687585; }
+    :root { color-scheme: light dark; --accent: #0f766e; --green: #16a34a; --line: #d7dee6; --muted: #687585; --soft: #f1f5f9; }
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f9fb; color: #111827; }
     header { padding: 18px 22px; background: #ffffff; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     h1 { margin: 0; font-size: 20px; font-weight: 650; }
     main { padding: 18px 22px 32px; max-width: 1180px; margin: 0 auto; }
     section { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
     h2 { margin: 0 0 12px; font-size: 16px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
-    .field { display: grid; gap: 6px; }
+    .settings-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px 14px; align-items: end; }
+    .field { display: grid; gap: 6px; grid-column: span 4; min-width: 0; }
+    .field.wide { grid-column: span 8; }
+    .field.compact { grid-column: span 2; }
+    .field.full { grid-column: 1 / -1; }
+    .input-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+    .input-row input, .input-row select { flex: 1 1 auto; min-width: 0; }
     label { font-size: 13px; color: #334155; }
-    input[type="text"], input[type="number"] { border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; font-size: 14px; width: 100%; box-sizing: border-box; background: #fff; color: #111827; }
+    input[type="text"], input[type="number"], input[type="password"], select { border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; font-size: 14px; width: 100%; box-sizing: border-box; background: #fff; color: #111827; }
     button { border: 1px solid #0f766e; background: var(--accent); color: #fff; border-radius: 6px; padding: 9px 12px; font-size: 14px; cursor: pointer; }
     button.secondary { background: #fff; color: var(--accent); }
+    button.neutral { border-color: #a8b3c2; background: #fff; color: #334155; }
     button:disabled { opacity: .55; cursor: wait; }
-    .regions { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
-    .region { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; }
-    .region-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .region-control { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .region-state { color: var(--muted); font-size: 13px; }
+    .settings-actions { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; padding-top: 4px; }
+    .settings-actions label { white-space: nowrap; }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 0; }
+    .regions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: stretch; }
+    .region { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; grid-template-rows: 56px 86px; gap: 10px; min-height: 164px; }
+    .region-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+    .region-title { min-width: 0; }
+    .region-title strong { display: block; font-size: 16px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .region-actions { display: grid; justify-items: end; gap: 5px; min-width: 62px; }
+    .region-state { color: var(--muted); font-size: 12px; line-height: 1.2; white-space: nowrap; }
     button.region-toggle { width: 54px; height: 30px; border: 0; border-radius: 999px; padding: 3px; background: #cbd5e1; display: inline-flex; align-items: center; justify-content: flex-start; transition: background .16s ease; }
     button.region-toggle::after { content: ""; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(15, 23, 42, .2); transition: transform .16s ease; }
-    button.region-toggle.on { background: #16a34a; }
+    button.region-toggle.on { background: var(--green); }
     button.region-toggle.on::after { transform: translateX(24px); }
     .count { color: var(--muted); font-size: 12px; }
     .bad { color: #b42318; }
     .ok { color: #087443; }
     pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; max-height: 360px; overflow: auto; font-size: 12px; }
-    .nodes { color: var(--muted); font-size: 12px; line-height: 1.45; max-height: 82px; overflow: auto; }
+    .nodes { color: var(--muted); font-size: 12px; line-height: 1.45; height: 86px; overflow: auto; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 12px; background: #f8fafc; }
+    @media (max-width: 760px) {
+      .field, .field.wide, .field.compact { grid-column: 1 / -1; }
+      header { align-items: flex-start; flex-direction: column; }
+    }
     @media (prefers-color-scheme: dark) {
       body { background: #0b1220; color: #e5e7eb; }
       header, section { background: #111827; }
-      input[type="text"], input[type="number"], button.secondary { background: #0b1220; color: #e5e7eb; }
+      input[type="text"], input[type="number"], input[type="password"], select, button.secondary, button.neutral { background: #0b1220; color: #e5e7eb; }
       label, .count, .nodes, .region-state { color: #9ca3af; }
       .pill { background: #0b1220; }
     }
@@ -76,17 +92,37 @@ INDEX_HTML = r"""<!doctype html>
   <main>
     <section>
       <h2>运行设置</h2>
-      <div class="grid">
-        <div class="field"><label>配置文件路径</label><input id="config_path" type="text"></div>
-        <div class="field"><label>重载命令</label><input id="reload_command" type="text"></div>
-        <div class="field"><label>控制面板 API</label><input id="dashboard_api" type="text"></div>
-        <div class="field"><label>控制面板密钥</label><input id="dashboard_secret" type="text" placeholder="可留空"></div>
-        <div class="field"><label>轮询间隔（秒）</label><input id="poll_seconds" type="number" min="5"></div>
+      <div class="settings-grid">
+        <div class="field wide">
+          <label>配置文件路径</label>
+          <div class="input-row">
+            <input id="config_path" type="text">
+            <select id="config_file_select" onchange="selectConfigFile()"></select>
+            <button class="neutral" onclick="loadConfigFiles()" type="button">浏览</button>
+          </div>
+        </div>
+        <div class="field compact"><label>轮询间隔（秒）</label><input id="poll_seconds" type="number" min="5"></div>
+        <div class="field wide">
+          <label>重载命令</label>
+          <div class="input-row">
+            <input id="reload_command" type="text">
+            <button class="neutral" onclick="reloadOpenClash()" type="button">一键重载</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>运行态验证 API</label>
+          <div class="input-row">
+            <input id="dashboard_api" type="text">
+            <button class="neutral" onclick="openDashboardApi()" type="button">打开</button>
+          </div>
+        </div>
+        <div class="field"><label>验证密钥</label><input id="dashboard_secret" type="password" placeholder="可留空"></div>
+        <div class="field full"><p class="hint">运行态验证 API 用于过滤后检查 OpenClash 当前运行的节点列表；不影响过滤本身。通常保持默认即可，只有开启验证且 OpenClash 设置了外部控制密钥时才需要填写验证密钥。</p></div>
       </div>
-      <div class="row" style="margin-top: 12px">
+      <div class="settings-actions">
         <label><input id="automation_enabled" type="checkbox"> 自动监听配置变化</label>
         <label><input id="allow_unknown" type="checkbox"> 允许未知地区节点</label>
-        <label><input id="verify_api" type="checkbox"> 应用后通过控制面板验证</label>
+        <label><input id="verify_api" type="checkbox"> 应用后运行态验证</label>
         <button class="secondary" onclick="saveSettings()">保存设置</button>
       </div>
     </section>
@@ -111,10 +147,12 @@ function regionNode(region) {
   const enabled = state.config.filter.enabled_regions.includes(id) && !state.config.filter.excluded_regions.includes(id);
   const stateText = enabled ? "已启用" : "已禁用";
   return `<div class="region">
-    <div class="region-head"><strong>${region.label}</strong><span class="count">${count} 个节点</span></div>
-    <div class="region-control">
-      <span class="region-state" data-region-state="${id}">${stateText}</span>
-      <button type="button" class="region-toggle ${enabled ? "on" : ""}" data-region="${id}" data-enabled="${enabled}" aria-label="${region.label}${stateText}" aria-pressed="${enabled}" onclick="toggleRegion(this)"></button>
+    <div class="region-top">
+      <div class="region-title"><strong>${region.label}</strong><span class="count">${count} 个节点</span></div>
+      <div class="region-actions">
+        <button type="button" class="region-toggle ${enabled ? "on" : ""}" data-region="${id}" data-enabled="${enabled}" aria-label="${region.label}${stateText}" aria-pressed="${enabled}" onclick="toggleRegion(this)"></button>
+        <span class="region-state" data-region-state="${id}">${stateText}</span>
+      </div>
     </div>
     <div class="nodes">${nodes.slice(0, 12).join("<br>") || "当前未发现节点"}</div>
   </div>`;
@@ -155,6 +193,46 @@ async function refresh() {
   document.getElementById("regions").innerHTML = state.config.regions.map(regionNode).join("");
   document.getElementById("result").textContent = JSON.stringify(state.last_result || state.scan, null, 2);
   document.getElementById("status").textContent = state.config.automation.enabled ? "自动监听中" : "自动监听关闭";
+  await loadConfigFiles(false);
+}
+
+async function loadConfigFiles(showStatus = true) {
+  if (showStatus) document.getElementById("status").textContent = "读取配置目录";
+  const current = document.getElementById("config_path").value;
+  const data = await api(`/api/config-files?path=${encodeURIComponent(current)}`);
+  const select = document.getElementById("config_file_select");
+  select.innerHTML = `<option value="">选择配置文件</option>` + data.files.map(file => {
+    const selected = file.path === current ? "selected" : "";
+    return `<option value="${file.path}" ${selected}>${file.name}</option>`;
+  }).join("");
+  if (showStatus) document.getElementById("status").textContent = "配置目录已读取";
+}
+
+function selectConfigFile() {
+  const value = document.getElementById("config_file_select").value;
+  if (value) document.getElementById("config_path").value = value;
+}
+
+async function reloadOpenClash() {
+  document.getElementById("status").textContent = "重载中";
+  await saveSettings();
+  const result = await api("/api/reload", {method: "POST"});
+  document.getElementById("result").textContent = JSON.stringify(result, null, 2);
+  document.getElementById("status").textContent = result.ok ? "重载完成" : "重载失败";
+}
+
+function openDashboardApi() {
+  const raw = document.getElementById("dashboard_api").value.trim();
+  if (!raw) return;
+  try {
+    const url = new URL(raw, window.location.href);
+    if (["127.0.0.1", "localhost", "0.0.0.0"].includes(url.hostname)) {
+      url.hostname = window.location.hostname;
+    }
+    window.open(url.toString(), "_blank", "noopener");
+  } catch (_) {
+    document.getElementById("result").textContent = "运行态验证 API 地址格式不正确";
+  }
 }
 
 function collectSettings() {
@@ -245,6 +323,42 @@ class AppState:
             self.last_result = result.to_dict()
         return result.to_dict()
 
+    def reload_openclash(self) -> dict[str, Any]:
+        with self.lock:
+            config = self.store.load()
+        reload_command = str(config["openclash"].get("reload_command", "")).strip()
+        if not reload_command:
+            return {"ok": False, "error": "reload_command is empty"}
+
+        completed = subprocess.run(
+            reload_command,
+            shell=True,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=120,
+        )
+        return {
+            "ok": completed.returncode == 0,
+            "returncode": completed.returncode,
+            "command": reload_command,
+            "output": completed.stdout.strip(),
+        }
+
+
+def list_config_files(config_path: str) -> dict[str, Any]:
+    path = Path(config_path or "/etc/openclash/config")
+    directory = path if path.is_dir() else path.parent
+    files = []
+
+    if directory.exists() and directory.is_dir():
+        for item in sorted(directory.iterdir(), key=lambda p: p.name.lower()):
+            if item.is_file() and item.suffix.lower() in {".yaml", ".yml"}:
+                files.append({"name": item.name, "path": str(item)})
+
+    return {"directory": str(directory), "files": files}
+
 
 def automation_loop(state: AppState) -> None:
     last_mtime: float | None = None
@@ -303,7 +417,8 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/":
             body = INDEX_HTML.encode("utf-8")
             self.send_response(HTTPStatus.OK)
@@ -326,6 +441,14 @@ class Handler(BaseHTTPRequestHandler):
                 }
             )
             return
+        if path == "/api/config-files":
+            query = parse_qs(parsed.query)
+            requested_path = (query.get("path") or [""])[0]
+            if not requested_path:
+                config = self.server.app_state.load_config()
+                requested_path = str(config["openclash"].get("config_path", ""))
+            self.send_json(list_config_files(requested_path))
+            return
         self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
@@ -336,6 +459,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/apply":
             self.send_json(self.server.app_state.apply())
+            return
+        if path == "/api/reload":
+            try:
+                self.send_json(self.server.app_state.reload_openclash())
+            except subprocess.TimeoutExpired as exc:
+                self.send_json(
+                    {"ok": False, "error": f"reload command timed out: {exc}"},
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
             return
         self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 

@@ -2,9 +2,9 @@
 
 ## 背景
 
-这个项目用于解决 OpenClash 订阅自动更新后的节点地区过滤问题。目标是在不使用第三方订阅转换服务、不外传订阅地址的前提下，在本地读取 OpenClash 已生成的 YAML 配置，只保留指定地区节点，并自动重启 OpenClash 生效。
+这个项目用于解决 OpenClash 订阅自动更新后的节点地区过滤问题。目标是在不使用第三方订阅转换服务、不外传订阅地址的前提下，在本地读取 OpenClash 已生成的 YAML 配置，排除用户禁用的地区节点，并自动重启 OpenClash 生效。
 
-当前默认策略是允许新加坡、美国、日本、韩国、印尼节点，排除香港节点。实际订阅里如果暂时没有韩国或印尼节点，面板会显示为 0，后续订阅更新出现后会自动保留。
+当前默认策略是启用新加坡、美国、日本、韩国、印尼和未知地区节点，排除香港和大陆节点。实际订阅里如果暂时没有某个地区节点，面板会显示为 0，后续订阅更新出现后会按对应开关自动处理。
 
 ## 功能
 
@@ -15,7 +15,7 @@
 - 过滤 inline `proxies`，并同步重写 `proxy-groups` 中的节点引用。
 - 写回前自动备份原始配置到 `.region-filter-backups/`。
 - 写回后可执行 OpenClash 重载命令。
-- 可选使用 OpenClash Dashboard API 验证运行中的节点列表。
+- 可选使用 OpenClash 运行态验证 API 检查运行中的节点列表。
 
 ## 项目结构
 
@@ -27,6 +27,7 @@ openclash-region-filter/
   scripts/
     deploy-ocfilter.sh    # iStoreOS 离线/半离线部署脚本
     deploy-to-istoreos.sh # 本机一键打包、上传、部署
+    install-luci-menu.sh  # 在 LuCI 服务菜单下安装入口
     package.sh            # 生成部署 tar 包
   artifacts/              # 本地构建产物目录，不纳入 Git
   Dockerfile
@@ -94,8 +95,15 @@ ROUTER_HOST=192.168.2.1 scripts/deploy-to-istoreos.sh
 3. 通过 `ssh` 在路由器上重建 `openclash-region-filter:local` 镜像。
 4. 重启 `openclash-region-filter` 容器。
 5. 检查 `http://路由器IP:8088/api/state` 是否可访问。
+6. 默认在 LuCI 左侧“服务”菜单下安装 `OpenClash 地区过滤` 入口。
 
 如果路由器上已经存在 `openclash-region-filter:local` 镜像，部署脚本会复用该镜像作为构建基底，只替换应用代码，避免每次重新安装 Python 依赖。只有首次部署或镜像被删除时，才会回退到 `alpine-local` 并安装依赖。
+
+如果不想安装 LuCI 菜单入口，可以执行：
+
+```sh
+INSTALL_LUCI_MENU=0 ROUTER_HOST=192.168.2.1 scripts/deploy-to-istoreos.sh
+```
 
 前提条件：
 
@@ -118,7 +126,7 @@ ROUTER_HOST=192.168.2.1 scripts/deploy-to-istoreos.sh
 nsenter -t 1 -m -u -i -n -p -- /etc/init.d/openclash restart
 ```
 
-如果 OpenClash Dashboard 开启了密钥，面板中的“控制面板密钥”必须填写，否则运行态验证会返回 `401 Unauthorized`。这不会影响文件过滤本身，只会影响“运行中节点列表”的 API 验证。
+运行态验证 API 默认是 `http://127.0.0.1:9090`，用于服务容器向 OpenClash/Mihomo 查询当前运行中的节点列表。它不是日常必须操作的页面；只有开启“应用后通过控制面板验证”并且 OpenClash 设置了外部控制密钥时，才需要填写验证密钥。未填写密钥时可能返回 `401 Unauthorized`，这不会影响文件过滤本身。
 
 ## 已验证状态
 
@@ -137,7 +145,7 @@ http://192.168.2.1:8088
 - 印尼：0 个
 - 香港：0 个
 
-执行一次立即过滤后，配置中未发现香港或未知地区节点，当前配置已经符合默认规则。
+执行一次立即过滤后，配置中未发现香港或大陆节点，当前配置已经符合默认规则。
 
 ## 开发和测试
 
@@ -167,7 +175,7 @@ python3 -m http.server 80 --bind 0.0.0.0
 - BusyBox `wget` 在本次环境里使用 `192.168.2.190/file` 比 `http://192.168.2.190:18089/file` 更稳定。
 - Docker Hub 拉取不可靠时，可以本地下载 Alpine rootfs，再在路由器上 `docker import` 成 `alpine-local`。
 - 构建容器如果中途停止，续跑脚本要先 `docker start`，不能假设容器存在就一定在运行。
-- OpenClash Dashboard API 如果配置了 secret，未填写密钥时 `/proxies` 会返回 401。这不是过滤失败，而是验证权限不足。
+- OpenClash 运行态验证 API 如果配置了 secret，未填写密钥时 `/proxies` 会返回 401。这不是过滤失败，而是验证权限不足。
 - 过滤器面板当前没有登录认证，只建议在可信内网访问，或者后续加 LuCI 反代认证。
 
 ## 建议事项

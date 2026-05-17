@@ -8,6 +8,7 @@ ROUTER="$ROUTER_USER@$ROUTER_HOST"
 REMOTE_TAR=${REMOTE_TAR:-/tmp/openclash-region-filter.tar.gz}
 REMOTE_SCRIPT=${REMOTE_SCRIPT:-/tmp/deploy-ocfilter.sh}
 PORT=${PORT:-8088}
+INSTALL_LUCI_MENU=${INSTALL_LUCI_MENU:-1}
 
 "$ROOT/scripts/package.sh"
 
@@ -17,6 +18,11 @@ scp "$ROOT/scripts/deploy-ocfilter.sh" "$ROUTER:$REMOTE_SCRIPT"
 
 echo "== Deploying on iStoreOS =="
 ssh "$ROUTER" "APP_TAR='$REMOTE_TAR' PORT='$PORT' sh '$REMOTE_SCRIPT'"
+
+if [ "$INSTALL_LUCI_MENU" = "1" ]; then
+  echo "== Installing LuCI menu entry =="
+  "$ROOT/scripts/install-luci-menu.sh"
+fi
 
 echo "== Checking panel =="
 curl -fsS "http://$ROUTER_HOST:$PORT/api/state" >/dev/null
