@@ -21,8 +21,6 @@ DEFAULT_CONFIG = {
             "singapore",
             "united_states",
             "japan",
-            "south_korea",
-            "indonesia",
         ],
         "excluded_regions": ["hong_kong", "china_mainland"],
     },
@@ -30,11 +28,13 @@ DEFAULT_CONFIG = {
         {
             "id": "singapore",
             "label": "新加坡",
+            "default_enabled": True,
             "patterns": ["🇸🇬", "狮城", "新加坡", "Singapore", "\\bSG\\b"],
         },
         {
             "id": "united_states",
             "label": "美国",
+            "default_enabled": True,
             "patterns": [
                 "🇺🇸",
                 "美国",
@@ -60,16 +60,19 @@ DEFAULT_CONFIG = {
         {
             "id": "japan",
             "label": "日本",
+            "default_enabled": True,
             "patterns": ["🇯🇵", "日本", "东京", "東京", "大阪", "Japan", "\\bJP\\b"],
         },
         {
             "id": "south_korea",
             "label": "韩国",
+            "default_enabled": True,
             "patterns": ["🇰🇷", "韩国", "韓國", "首尔", "首爾", "Korea", "\\bKR\\b"],
         },
         {
             "id": "indonesia",
             "label": "印尼",
+            "default_enabled": True,
             "patterns": [
                 "🇮🇩",
                 "印尼",

@@ -35,17 +35,17 @@ INDEX_HTML = r"""<!doctype html>
     section { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
     h2 { margin: 0; font-size: 16px; }
     .section-head { display: grid; gap: 6px; margin-bottom: 16px; }
-    .lower-grid { --lower-panel-height: 520px; display: grid; grid-template-columns: 560px minmax(520px, 1fr); gap: 16px; align-items: stretch; }
+    .lower-grid { --lower-panel-height: 520px; display: grid; grid-template-columns: 540px minmax(0, 1fr); gap: 16px; align-items: stretch; }
     .lower-grid section { box-sizing: border-box; height: var(--lower-panel-height); margin-bottom: 0; }
     .settings-section { min-height: 0; overflow: auto; }
     .settings-layout { display: grid; gap: 22px; align-items: start; justify-content: start; }
     .settings-stack { display: grid; gap: 14px; min-width: 0; }
-    .settings-side { display: grid; grid-template-columns: 150px 362px; gap: 14px 16px; align-items: end; min-width: 0; }
+    .settings-side { display: grid; grid-template-columns: 130px 360px; gap: 14px 16px; align-items: end; min-width: 0; }
     .field { display: grid; gap: 7px; min-width: 0; }
     .field.full { grid-column: 1 / -1; }
     .input-row { display: grid; gap: 8px; align-items: center; min-width: 0; }
-    .path-row { grid-template-columns: 218px 190px 104px; }
-    .command-row { grid-template-columns: 416px 104px; }
+    .path-row { grid-template-columns: 205px 180px 104px; }
+    .command-row { grid-template-columns: 393px 104px; }
     .api-row { grid-template-columns: 282px 72px; }
     .input-row input, .input-row select { min-width: 0; }
     label { font-size: 13px; color: #334155; }
@@ -76,7 +76,7 @@ INDEX_HTML = r"""<!doctype html>
     .nodes { color: var(--muted); font-size: 12px; line-height: 1.45; height: 86px; overflow: auto; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 12px; background: #f8fafc; }
-    @media (max-width: 1380px) {
+    @media (max-width: 980px) {
       .lower-grid { grid-template-columns: 1fr; }
       .lower-grid section { height: auto; }
       .result-section { height: 360px !important; }
@@ -166,6 +166,12 @@ INDEX_HTML = r"""<!doctype html>
   </main>
 <script>
 let state = null;
+const ALWAYS_VISIBLE_REGIONS = new Set(["singapore", "united_states", "japan", "hong_kong"]);
+
+function visibleRegions() {
+  const counts = state.scan.region_counts || {};
+  return state.config.regions.filter(region => ALWAYS_VISIBLE_REGIONS.has(region.id) || (counts[region.id] || 0) > 0);
+}
 
 function regionNode(region) {
   const id = region.id;
@@ -218,7 +224,7 @@ async function refresh() {
   document.getElementById("automation_enabled").checked = !!state.config.automation.enabled;
   document.getElementById("allow_unknown").checked = !!state.config.filter.allow_unknown;
   document.getElementById("verify_api").checked = !!state.config.openclash.verify_api;
-  document.getElementById("regions").innerHTML = state.config.regions.map(regionNode).join("");
+  document.getElementById("regions").innerHTML = visibleRegions().map(regionNode).join("");
   document.getElementById("result").textContent = JSON.stringify(state.last_result || state.scan, null, 2);
   document.getElementById("status").textContent = state.config.automation.enabled ? "自动监听中" : "自动监听关闭";
   await loadConfigFiles(false);
@@ -264,13 +270,15 @@ function openDashboardApi() {
 }
 
 function collectSettings() {
-  const enabled = [];
-  const excluded = [];
+  const enabled = new Set(state.config.filter.enabled_regions || []);
+  const excluded = new Set(state.config.filter.excluded_regions || []);
   document.querySelectorAll("#regions .region-toggle").forEach(el => {
     if (el.dataset.enabled === "true") {
-      enabled.push(el.dataset.region);
+      enabled.add(el.dataset.region);
+      excluded.delete(el.dataset.region);
     } else {
-      excluded.push(el.dataset.region);
+      enabled.delete(el.dataset.region);
+      excluded.add(el.dataset.region);
     }
   });
   return {
@@ -288,8 +296,8 @@ function collectSettings() {
     },
     filter: {
       allow_unknown: document.getElementById("allow_unknown").checked,
-      enabled_regions: enabled,
-      excluded_regions: excluded
+      enabled_regions: Array.from(enabled),
+      excluded_regions: Array.from(excluded)
     }
   };
 }

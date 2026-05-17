@@ -214,6 +214,11 @@ class FilterResult:
 class RegionMatcher:
     def __init__(self, regions: list[dict[str, Any]]):
         self.regions = regions
+        self._default_enabled = {
+            str(region.get("id"))
+            for region in regions
+            if region.get("default_enabled")
+        }
         self._compiled: list[tuple[str, str, list[re.Pattern[str]]]] = []
         for region in regions:
             patterns = [
@@ -229,6 +234,9 @@ class RegionMatcher:
                 return region_id, label
         return "unknown", "未知"
 
+    def is_default_enabled(self, region_id: str) -> bool:
+        return region_id in self._default_enabled
+
     def matches_desired_name(
         self,
         name: str,
@@ -241,7 +249,9 @@ class RegionMatcher:
             return False
         if region_id == "unknown":
             return allow_unknown
-        return region_id in enabled_regions
+        return region_id in enabled_regions or (
+            allow_unknown and self.is_default_enabled(region_id)
+        )
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
@@ -332,7 +342,9 @@ def filter_config_data(data: dict[str, Any], config: dict[str, Any]) -> tuple[di
             if not kept:
                 unknown_nodes.append(name)
         else:
-            kept = region_id in enabled_regions
+            kept = region_id in enabled_regions or (
+                allow_unknown and matcher.is_default_enabled(region_id)
+            )
             reason = "enabled_region" if kept else "not_enabled_region"
 
         if kept:
