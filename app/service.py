@@ -42,6 +42,12 @@ INDEX_HTML = r"""<!doctype html>
     .regions { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
     .region { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; }
     .region-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .region-control { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .region-state { color: var(--muted); font-size: 13px; }
+    button.region-toggle { width: 54px; height: 30px; border: 0; border-radius: 999px; padding: 3px; background: #cbd5e1; display: inline-flex; align-items: center; justify-content: flex-start; transition: background .16s ease; }
+    button.region-toggle::after { content: ""; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(15, 23, 42, .2); transition: transform .16s ease; }
+    button.region-toggle.on { background: #16a34a; }
+    button.region-toggle.on::after { transform: translateX(24px); }
     .count { color: var(--muted); font-size: 12px; }
     .bad { color: #b42318; }
     .ok { color: #087443; }
@@ -53,7 +59,7 @@ INDEX_HTML = r"""<!doctype html>
       body { background: #0b1220; color: #e5e7eb; }
       header, section { background: #111827; }
       input[type="text"], input[type="number"], button.secondary { background: #0b1220; color: #e5e7eb; }
-      label, .count, .nodes { color: #9ca3af; }
+      label, .count, .nodes, .region-state { color: #9ca3af; }
       .pill { background: #0b1220; }
     }
   </style>
@@ -102,14 +108,28 @@ function regionNode(region) {
   const id = region.id;
   const count = state.scan.region_counts[id] || 0;
   const nodes = state.scan.nodes.filter(n => n.region_id === id).map(n => n.name);
-  const enabled = state.config.filter.enabled_regions.includes(id);
-  const excluded = state.config.filter.excluded_regions.includes(id);
+  const enabled = state.config.filter.enabled_regions.includes(id) && !state.config.filter.excluded_regions.includes(id);
+  const stateText = enabled ? "已启用" : "已禁用";
   return `<div class="region">
     <div class="region-head"><strong>${region.label}</strong><span class="count">${count} 个节点</span></div>
-    <label><input type="checkbox" data-kind="enabled" data-region="${id}" ${enabled ? "checked" : ""}> 允许</label>
-    <label><input type="checkbox" data-kind="excluded" data-region="${id}" ${excluded ? "checked" : ""}> 排除</label>
+    <div class="region-control">
+      <span class="region-state" data-region-state="${id}">${stateText}</span>
+      <button type="button" class="region-toggle ${enabled ? "on" : ""}" data-region="${id}" data-enabled="${enabled}" aria-label="${region.label}${stateText}" aria-pressed="${enabled}" onclick="toggleRegion(this)"></button>
+    </div>
     <div class="nodes">${nodes.slice(0, 12).join("<br>") || "当前未发现节点"}</div>
   </div>`;
+}
+
+function toggleRegion(button) {
+  const enabled = button.dataset.enabled !== "true";
+  button.dataset.enabled = String(enabled);
+  button.classList.toggle("on", enabled);
+  button.setAttribute("aria-pressed", String(enabled));
+  const label = button.closest(".region").querySelector("strong").textContent;
+  const stateLabel = document.querySelector(`[data-region-state="${button.dataset.region}"]`);
+  const stateText = enabled ? "已启用" : "已禁用";
+  stateLabel.textContent = stateText;
+  button.setAttribute("aria-label", `${label}${stateText}`);
 }
 
 async function api(path, options) {
@@ -140,10 +160,12 @@ async function refresh() {
 function collectSettings() {
   const enabled = [];
   const excluded = [];
-  document.querySelectorAll("#regions input").forEach(el => {
-    if (!el.checked) return;
-    if (el.dataset.kind === "enabled") enabled.push(el.dataset.region);
-    if (el.dataset.kind === "excluded") excluded.push(el.dataset.region);
+  document.querySelectorAll("#regions .region-toggle").forEach(el => {
+    if (el.dataset.enabled === "true") {
+      enabled.push(el.dataset.region);
+    } else {
+      excluded.push(el.dataset.region);
+    }
   });
   return {
     openclash: {
@@ -356,4 +378,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
