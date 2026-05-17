@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import logging
 import subprocess
@@ -30,23 +31,26 @@ INDEX_HTML = r"""<!doctype html>
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f9fb; color: #111827; }
     header { padding: 18px 22px; background: #ffffff; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     h1 { margin: 0; font-size: 20px; font-weight: 650; }
-    main { padding: 18px 22px 32px; max-width: 1180px; margin: 0 auto; }
+    main { padding: 18px 22px 32px; max-width: 1220px; margin: 0 auto; }
     section { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-    h2 { margin: 0 0 12px; font-size: 16px; }
-    .settings-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px 14px; align-items: end; }
-    .field { display: grid; gap: 6px; grid-column: span 4; min-width: 0; }
-    .field.wide { grid-column: span 8; }
-    .field.compact { grid-column: span 2; }
+    h2 { margin: 0; font-size: 16px; }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .settings-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, .8fr); gap: 18px 22px; align-items: start; }
+    .settings-stack { display: grid; gap: 14px; min-width: 0; }
+    .settings-side { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 14px; align-items: end; min-width: 0; }
+    .field { display: grid; gap: 7px; min-width: 0; }
     .field.full { grid-column: 1 / -1; }
-    .input-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
-    .input-row input, .input-row select { flex: 1 1 auto; min-width: 0; }
+    .input-row { display: grid; gap: 8px; align-items: center; min-width: 0; }
+    .path-row { grid-template-columns: minmax(260px, 1fr) minmax(180px, 260px) auto; }
+    .command-row, .api-row { grid-template-columns: minmax(260px, 1fr) auto; }
+    .input-row input, .input-row select { min-width: 0; }
     label { font-size: 13px; color: #334155; }
-    input[type="text"], input[type="number"], input[type="password"], select { border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; font-size: 14px; width: 100%; box-sizing: border-box; background: #fff; color: #111827; }
-    button { border: 1px solid #0f766e; background: var(--accent); color: #fff; border-radius: 6px; padding: 9px 12px; font-size: 14px; cursor: pointer; }
+    input[type="text"], input[type="number"], input[type="password"], select { border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; font-size: 14px; width: 100%; height: 40px; box-sizing: border-box; background: #fff; color: #111827; }
+    button { border: 1px solid #0f766e; background: var(--accent); color: #fff; border-radius: 6px; padding: 9px 12px; min-height: 40px; font-size: 14px; cursor: pointer; white-space: nowrap; }
     button.secondary { background: #fff; color: var(--accent); }
     button.neutral { border-color: #a8b3c2; background: #fff; color: #334155; }
     button:disabled { opacity: .55; cursor: wait; }
-    .settings-actions { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; padding-top: 4px; }
+    .settings-actions { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--line); }
     .settings-actions label { white-space: nowrap; }
     .hint { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 0; }
     .regions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: stretch; }
@@ -68,7 +72,8 @@ INDEX_HTML = r"""<!doctype html>
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 12px; background: #f8fafc; }
     @media (max-width: 760px) {
-      .field, .field.wide, .field.compact { grid-column: 1 / -1; }
+      .settings-layout, .settings-side { grid-template-columns: 1fr; }
+      .path-row, .command-row, .api-row { grid-template-columns: 1fr; }
       header { align-items: flex-start; flex-direction: column; }
     }
     @media (prefers-color-scheme: dark) {
@@ -91,33 +96,43 @@ INDEX_HTML = r"""<!doctype html>
   </header>
   <main>
     <section>
-      <h2>运行设置</h2>
-      <div class="settings-grid">
-        <div class="field wide">
-          <label>配置文件路径</label>
-          <div class="input-row">
-            <input id="config_path" type="text">
-            <select id="config_file_select" onchange="selectConfigFile()"></select>
-            <button class="neutral" onclick="loadConfigFiles()" type="button">浏览</button>
+      <div class="section-head">
+        <h2>运行设置</h2>
+        <span class="hint">订阅更新后自动过滤，日常只需要调整地区开关。</span>
+      </div>
+      <div class="settings-layout">
+        <div class="settings-stack">
+          <div class="field">
+            <label>配置文件路径</label>
+            <div class="input-row path-row">
+              <input id="config_path" type="text">
+              <select id="config_file_select" onchange="selectConfigFile()"></select>
+              <button class="neutral" onclick="loadConfigFiles()" type="button">刷新文件</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>重载命令</label>
+            <div class="input-row command-row">
+              <input id="reload_command" type="text">
+              <button class="neutral" onclick="reloadOpenClash()" type="button">一键重载</button>
+            </div>
           </div>
         </div>
-        <div class="field compact"><label>轮询间隔（秒）</label><input id="poll_seconds" type="number" min="5"></div>
-        <div class="field wide">
-          <label>重载命令</label>
-          <div class="input-row">
-            <input id="reload_command" type="text">
-            <button class="neutral" onclick="reloadOpenClash()" type="button">一键重载</button>
+        <div class="settings-side">
+          <div class="field"><label>轮询间隔</label><input id="poll_seconds" type="number" min="5"></div>
+          <div class="field">
+            <label>运行态验证 API</label>
+            <div class="input-row api-row">
+              <input id="dashboard_api" type="text">
+              <button class="neutral" onclick="openDashboardApi()" type="button">打开</button>
+            </div>
           </div>
-        </div>
-        <div class="field">
-          <label>运行态验证 API</label>
-          <div class="input-row">
-            <input id="dashboard_api" type="text">
-            <button class="neutral" onclick="openDashboardApi()" type="button">打开</button>
+          <div class="field full">
+            <label>验证密钥</label>
+            <input id="dashboard_secret" type="password" placeholder="可留空">
           </div>
+          <div class="field full"><p class="hint">运行态验证 API 只用于检查 OpenClash 当前运行节点；不影响过滤本身。通常保持默认即可。</p></div>
         </div>
-        <div class="field"><label>验证密钥</label><input id="dashboard_secret" type="password" placeholder="可留空"></div>
-        <div class="field full"><p class="hint">运行态验证 API 用于过滤后检查 OpenClash 当前运行的节点列表；不影响过滤本身。通常保持默认即可，只有开启验证且 OpenClash 设置了外部控制密钥时才需要填写验证密钥。</p></div>
       </div>
       <div class="settings-actions">
         <label><input id="automation_enabled" type="checkbox"> 自动监听配置变化</label>
@@ -144,7 +159,8 @@ function regionNode(region) {
   const id = region.id;
   const count = state.scan.region_counts[id] || 0;
   const nodes = state.scan.nodes.filter(n => n.region_id === id).map(n => n.name);
-  const enabled = state.config.filter.enabled_regions.includes(id) && !state.config.filter.excluded_regions.includes(id);
+  const defaultEnabled = !!region.default_enabled && !!state.config.filter.allow_unknown;
+  const enabled = (state.config.filter.enabled_regions.includes(id) || defaultEnabled) && !state.config.filter.excluded_regions.includes(id);
   const stateText = enabled ? "已启用" : "已禁用";
   return `<div class="region">
     <div class="region-top">
@@ -246,6 +262,7 @@ function collectSettings() {
     }
   });
   return {
+    regions: state.config.regions,
     openclash: {
       config_path: document.getElementById("config_path").value,
       reload_command: document.getElementById("reload_command").value,
@@ -433,9 +450,12 @@ class Handler(BaseHTTPRequestHandler):
                 scan = scan_regions(config["openclash"]["config_path"], config)
             except Exception as exc:
                 scan = {"error": str(exc), "node_count": 0, "region_counts": {}, "nodes": []}
+            response_config = copy.deepcopy(config)
+            if isinstance(scan.get("regions"), list):
+                response_config["regions"] = scan["regions"]
             self.send_json(
                 {
-                    "config": config,
+                    "config": response_config,
                     "scan": scan,
                     "last_result": self.server.app_state.last_result,
                 }

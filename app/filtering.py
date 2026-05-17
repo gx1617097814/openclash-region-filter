@@ -14,6 +14,89 @@ from typing import Any
 import yaml
 
 
+FLAG_REGION_LABELS = {
+    "AC": "阿森松岛",
+    "AD": "安道尔",
+    "AE": "阿联酋",
+    "AF": "阿富汗",
+    "AG": "安提瓜和巴布达",
+    "AI": "安圭拉",
+    "AL": "阿尔巴尼亚",
+    "AM": "亚美尼亚",
+    "AO": "安哥拉",
+    "AR": "阿根廷",
+    "AT": "奥地利",
+    "AU": "澳大利亚",
+    "AZ": "阿塞拜疆",
+    "BA": "波黑",
+    "BD": "孟加拉",
+    "BE": "比利时",
+    "BG": "保加利亚",
+    "BH": "巴林",
+    "BR": "巴西",
+    "CA": "加拿大",
+    "CH": "瑞士",
+    "CL": "智利",
+    "CN": "大陆",
+    "CO": "哥伦比亚",
+    "CZ": "捷克",
+    "DE": "德国",
+    "DK": "丹麦",
+    "EE": "爱沙尼亚",
+    "EG": "埃及",
+    "ES": "西班牙",
+    "FI": "芬兰",
+    "FR": "法国",
+    "GB": "英国",
+    "GR": "希腊",
+    "HK": "香港",
+    "HR": "克罗地亚",
+    "HU": "匈牙利",
+    "ID": "印尼",
+    "IE": "爱尔兰",
+    "IL": "以色列",
+    "IN": "印度",
+    "IR": "伊朗",
+    "IS": "冰岛",
+    "IT": "意大利",
+    "JP": "日本",
+    "KH": "柬埔寨",
+    "KR": "韩国",
+    "KZ": "哈萨克斯坦",
+    "LA": "老挝",
+    "LK": "斯里兰卡",
+    "LT": "立陶宛",
+    "LU": "卢森堡",
+    "LV": "拉脱维亚",
+    "MM": "缅甸",
+    "MN": "蒙古",
+    "MO": "澳门",
+    "MX": "墨西哥",
+    "MY": "马来西亚",
+    "NL": "荷兰",
+    "NO": "挪威",
+    "NZ": "新西兰",
+    "PH": "菲律宾",
+    "PK": "巴基斯坦",
+    "PL": "波兰",
+    "PT": "葡萄牙",
+    "RO": "罗马尼亚",
+    "RU": "俄罗斯",
+    "SA": "沙特",
+    "SE": "瑞典",
+    "SG": "新加坡",
+    "TH": "泰国",
+    "TR": "土耳其",
+    "TW": "台湾",
+    "UA": "乌克兰",
+    "US": "美国",
+    "VN": "越南",
+    "ZA": "南非",
+}
+
+REGIONAL_INDICATOR_A = 0x1F1E6
+
+
 BUILTIN_GROUP_ITEMS = {
     "DIRECT",
     "REJECT",
@@ -22,6 +105,80 @@ BUILTIN_GROUP_ITEMS = {
     "REJECT-DROP",
     "PASS",
 }
+
+
+def flag_country_code(flag: str) -> str | None:
+    if len(flag) != 2:
+        return None
+    code = ""
+    for char in flag:
+        value = ord(char) - REGIONAL_INDICATOR_A
+        if value < 0 or value > 25:
+            return None
+        code += chr(ord("A") + value)
+    return code
+
+
+def first_flag(name: str) -> str | None:
+    chars = list(name)
+    for index in range(len(chars) - 1):
+        candidate = chars[index] + chars[index + 1]
+        if flag_country_code(candidate):
+            return candidate
+    return None
+
+
+def dynamic_region_for_name(name: str) -> dict[str, Any]:
+    flag = first_flag(name)
+    if flag:
+        country_code = flag_country_code(flag) or "xx"
+        label = FLAG_REGION_LABELS.get(country_code, country_code)
+        return {
+            "id": f"auto_{country_code.lower()}",
+            "label": label,
+            "patterns": [re.escape(flag)],
+            "dynamic": True,
+            "default_enabled": True,
+        }
+
+    return {
+        "id": "other_unknown",
+        "label": "其他地区",
+        "patterns": [re.escape(name)],
+        "dynamic": True,
+        "default_enabled": True,
+    }
+
+
+def regions_with_dynamic_nodes(regions: list[dict[str, Any]], names: list[str]) -> list[dict[str, Any]]:
+    merged = [dict(region) for region in regions]
+    matcher = RegionMatcher(merged)
+    existing = {str(region.get("id")) for region in merged}
+
+    for name in names:
+        region_id, _ = matcher.classify(name)
+        if region_id != "unknown":
+            continue
+
+        dynamic = dynamic_region_for_name(name)
+        dynamic_id = str(dynamic["id"])
+        if dynamic_id in existing:
+            if dynamic_id == "other_unknown":
+                for region in merged:
+                    if region.get("id") == dynamic_id:
+                        patterns = region.setdefault("patterns", [])
+                        for pattern in dynamic.get("patterns", []):
+                            if pattern not in patterns:
+                                patterns.append(pattern)
+                        break
+                matcher = RegionMatcher(merged)
+            continue
+
+        merged.append(dynamic)
+        existing.add(dynamic_id)
+        matcher = RegionMatcher(merged)
+
+    return merged
 
 
 @dataclasses.dataclass
@@ -99,11 +256,18 @@ def dump_yaml(data: dict[str, Any]) -> str:
 
 
 def scan_regions(path: str | Path, config: dict[str, Any]) -> dict[str, Any]:
-    matcher = RegionMatcher(config["regions"])
     data = load_yaml(path)
     proxies = data.get("proxies") or []
     if not isinstance(proxies, list):
         proxies = []
+
+    names = [
+        str(proxy["name"])
+        for proxy in proxies
+        if isinstance(proxy, dict) and proxy.get("name")
+    ]
+    regions = regions_with_dynamic_nodes(config["regions"], names)
+    matcher = RegionMatcher(regions)
 
     nodes: list[dict[str, Any]] = []
     counts: dict[str, int] = {}
@@ -120,6 +284,7 @@ def scan_regions(path: str | Path, config: dict[str, Any]) -> dict[str, Any]:
         "node_count": len(nodes),
         "region_counts": counts,
         "nodes": nodes,
+        "regions": regions,
     }
 
 
@@ -382,4 +547,3 @@ def verify_running_state(config: dict[str, Any]) -> dict[str, Any]:
         "leaf_names": leaf_names,
         "bad_nodes": bad_nodes,
     }
-

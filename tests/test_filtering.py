@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import copy
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.defaults import DEFAULT_CONFIG
-from app.filtering import filter_config_data
+from app.filtering import filter_config_data, scan_regions
 from app.config import merge_regions
 
 
@@ -95,6 +98,28 @@ class FilteringTest(unittest.TestCase):
 
         self.assertIn("hong_kong", region_ids)
         self.assertIn("china_mainland", region_ids)
+
+    def test_scan_adds_dynamic_flag_regions(self) -> None:
+        data = {
+            "proxies": [
+                {"name": "🇹🇼台湾-A", "type": "ss"},
+                {"name": "🇬🇧英国-A", "type": "ss"},
+                {"name": "No Flag Node", "type": "ss"},
+            ]
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sample = Path(tmpdir) / "sample.yaml"
+            sample.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+            scan = scan_regions(sample, copy.deepcopy(DEFAULT_CONFIG))
+
+        region_ids = {region["id"] for region in scan["regions"]}
+        self.assertIn("auto_tw", region_ids)
+        self.assertIn("auto_gb", region_ids)
+        self.assertIn("other_unknown", region_ids)
+        self.assertEqual(scan["region_counts"]["auto_tw"], 1)
+        self.assertEqual(scan["region_counts"]["auto_gb"], 1)
+        self.assertEqual(scan["region_counts"]["other_unknown"], 1)
 
 
 if __name__ == "__main__":
