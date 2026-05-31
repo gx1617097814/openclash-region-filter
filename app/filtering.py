@@ -261,8 +261,33 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
     return data
 
 
+def load_yaml_text(text: str) -> dict[str, Any]:
+    data = yaml.safe_load(text)
+    if not isinstance(data, dict):
+        raise ValueError("YAML root must be a mapping")
+    return data
+
+
 def dump_yaml(data: dict[str, Any]) -> str:
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=4096)
+
+
+def proxy_names_from_data(data: dict[str, Any]) -> list[str]:
+    proxies = data.get("proxies") or []
+    if not isinstance(proxies, list):
+        return []
+
+    return [
+        str(proxy["name"])
+        for proxy in proxies
+        if isinstance(proxy, dict) and proxy.get("name")
+    ]
+
+
+def config_with_dynamic_regions(data: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    updated = dict(config)
+    updated["regions"] = regions_with_dynamic_nodes(config["regions"], proxy_names_from_data(data))
+    return updated
 
 
 def scan_regions(path: str | Path, config: dict[str, Any]) -> dict[str, Any]:
@@ -271,11 +296,7 @@ def scan_regions(path: str | Path, config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(proxies, list):
         proxies = []
 
-    names = [
-        str(proxy["name"])
-        for proxy in proxies
-        if isinstance(proxy, dict) and proxy.get("name")
-    ]
+    names = proxy_names_from_data(data)
     regions = regions_with_dynamic_nodes(config["regions"], names)
     matcher = RegionMatcher(regions)
 

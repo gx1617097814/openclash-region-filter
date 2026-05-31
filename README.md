@@ -11,6 +11,7 @@
 - 原子写回配置文件，并在写回前自动备份
 - 自动重启 OpenClash
 - 可通过 OpenClash 运行态验证 API 检查运行中的节点列表
+- 可配置远程 Clash/OpenClash YAML 订阅，过滤后向 OpenClash 暴露本地订阅 YAML
 
 ## 默认规则
 
@@ -92,6 +93,26 @@ OpenClash 里可以重新打开“自动更新配置文件”。本服务会在�
 运行态验证 API: http://127.0.0.1:9090
 验证密钥: OpenClash 外部控制密钥
 ```
+
+## 订阅代理模式
+
+如果你的远程订阅本身已经是 Clash/OpenClash YAML，可以在面板的“远程 YAML 订阅”里填入订阅地址，然后点击“刷新订阅”。工具会拉取远程 YAML、按当前地区规则过滤，并生成本地订阅：
+
+```text
+http://路由器IP:8088/subscription.yaml
+```
+
+之后可以把 OpenClash 的订阅地址改成本地订阅地址。工具会缓存最近一次成功生成的 YAML；远程订阅临时失败时，不会主动清空这份缓存。
+
+当“自动监听配置变化”开启且配置了远程 YAML 订阅时，工具会按订阅刷新间隔自动刷新本地订阅缓存，默认每小时一次。
+
+如果 OpenClash 的订阅更新脚本不适合直接订阅本地 URL，可以点击“生成配置”，把过滤后的 YAML 写入：
+
+```text
+/etc/openclash/config/openclash-region-filter.yaml
+```
+
+然后让 OpenClash 使用这个本地配置文件。
 
 ## 一次性执行
 

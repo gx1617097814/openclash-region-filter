@@ -20,6 +20,7 @@
 - 写回前自动备份原始配置到 `.region-filter-backups/`。
 - 写回后可执行 OpenClash 重载命令。
 - 可选使用 OpenClash 运行态验证 API 检查运行中的节点列表。
+- 支持订阅代理模式：拉取远程 Clash/OpenClash YAML，过滤后生成本地订阅 YAML 供 OpenClash 订阅。
 
 ## 项目结构
 
@@ -131,6 +132,25 @@ nsenter -t 1 -m -u -i -n -p -- /etc/init.d/openclash restart
 ```
 
 运行态验证 API 默认是 `http://127.0.0.1:9090`，用于服务容器向 OpenClash/Mihomo 查询当前运行中的节点列表。它不是日常必须操作的页面；只有开启“应用后通过控制面板验证”并且 OpenClash 设置了外部控制密钥时，才需要填写验证密钥。未填写密钥时可能返回 `401 Unauthorized`，这不会影响文件过滤本身。
+
+## 订阅代理模式
+
+订阅本身已经是 Clash/OpenClash YAML 时，建议逐步切换到订阅代理模式。面板中配置“远程 YAML 订阅”后，工具会：
+
+1. 拉取远程 YAML。
+2. 扫描节点并补充新出现的动态地区。
+3. 按当前地区启用/禁用状态过滤节点。
+4. 写入 `/data/subscription-filtered.yaml` 缓存。
+5. 通过 `/subscription.yaml` 暴露给 OpenClash。
+6. 可按需安装为 `/etc/openclash/config/openclash-region-filter.yaml`，让 OpenClash 直接使用本地配置文件。
+
+OpenClash 可订阅：
+
+```text
+http://192.168.2.1:8088/subscription.yaml
+```
+
+如果配置了 `subscription.token`，面板显示的本地订阅地址会自动带上 `?token=...`。当前版本不会在远程订阅失败时删除旧缓存，因此 OpenClash 仍可读取最后一次成功生成的 YAML。
 
 ## 面板布局规则
 

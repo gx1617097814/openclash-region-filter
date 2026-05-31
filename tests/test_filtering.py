@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 from app.defaults import DEFAULT_CONFIG
 from app.filtering import filter_config_data, scan_regions
 from app.config import merge_regions
+from app.subscription import install_filtered_config, parse_subscription_userinfo, refresh_subscription
 
 
 class FilteringTest(unittest.TestCase):
@@ -120,6 +121,62 @@ class FilteringTest(unittest.TestCase):
         self.assertEqual(scan["region_counts"]["auto_tw"], 1)
         self.assertEqual(scan["region_counts"]["auto_gb"], 1)
         self.assertEqual(scan["region_counts"]["other_unknown"], 1)
+
+    def test_subscription_refresh_filters_and_caches_yaml(self) -> None:
+        data = {
+            "proxies": [
+                {"name": "🇸🇬新加坡-A", "type": "ss"},
+                {"name": "🇭🇰香港-A", "type": "ss"},
+                {"name": "🇬🇧英国-A", "type": "ss"},
+            ],
+            "proxy-groups": [
+                {
+                    "name": "Proxy",
+                    "type": "select",
+                    "proxies": ["🇸🇬新加坡-A", "🇭🇰香港-A", "🇬🇧英国-A", "DIRECT"],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "source.yaml"
+            cache = root / "filtered.yaml"
+            raw = root / "raw.yaml"
+            source.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+            config = copy.deepcopy(DEFAULT_CONFIG)
+            config["subscription"]["source_url"] = source.as_uri()
+            config["subscription"]["cache_path"] = str(cache)
+            config["subscription"]["last_source_path"] = str(raw)
+            config["subscription"]["output_config_path"] = str(root / "openclash-filtered.yaml")
+            config["subscription"]["user_agent"] = "clash.meta"
+            config["filter"]["excluded_regions"].append("auto_gb")
+
+            updated_config, result = refresh_subscription(config)
+            install_result = install_filtered_config(config)
+            rendered = yaml.safe_load(cache.read_text(encoding="utf-8"))
+            installed = yaml.safe_load(Path(config["subscription"]["output_config_path"]).read_text(encoding="utf-8"))
+            names = [proxy["name"] for proxy in rendered["proxies"]]
+
+        self.assertTrue(result.ok)
+        self.assertTrue(install_result.ok)
+        self.assertIn("auto_gb", result.regions_added)
+        self.assertIn("auto_gb", [region["id"] for region in updated_config["regions"]])
+        self.assertEqual(names, ["🇸🇬新加坡-A"])
+        self.assertEqual(installed["proxies"], rendered["proxies"])
+
+    def test_parse_subscription_userinfo(self) -> None:
+        info = parse_subscription_userinfo(
+            "upload=1073741824; download=2147483648; total=10737418240; expire=1893456000"
+        )
+
+        self.assertEqual(info["used"], 3221225472)
+        self.assertEqual(info["remaining"], 7516192768)
+        self.assertEqual(info["percent_remaining"], 70.0)
+        self.assertEqual(info["used_text"], "3.0 GB")
+        self.assertEqual(info["total_text"], "10.0 GB")
+        self.assertEqual(info["expire_text"], "2030-01-01 08:00:00")
 
 
 if __name__ == "__main__":

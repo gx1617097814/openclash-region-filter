@@ -9,6 +9,17 @@ DEFAULT_CONFIG = {
         "dashboard_secret": "",
         "verify_api": True,
     },
+    "subscription": {
+        "source_url": "",
+        "public_path": "/subscription.yaml",
+        "token": "",
+        "cache_path": "/data/subscription-filtered.yaml",
+        "last_source_path": "/data/subscription-source.yaml",
+        "output_config_path": "/etc/openclash/config/openclash-region-filter.yaml",
+        "timeout_seconds": 30,
+        "refresh_interval_seconds": 3600,
+        "user_agent": "clash.meta",
+    },
     "automation": {
         "enabled": True,
         "apply_on_start": False,
