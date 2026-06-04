@@ -57,8 +57,8 @@ INDEX_HTML = r"""<!doctype html>
     button:disabled { opacity: .55; cursor: wait; }
     button.is-success { border-color: #16a34a; background: #16a34a; color: #fff; opacity: 1; }
     button.is-error { border-color: #dc2626; background: #dc2626; color: #fff; opacity: 1; }
-    #feedback { position: fixed; top: 76px; right: 22px; z-index: 20; display: grid; gap: 8px; width: min(360px, calc(100vw - 44px)); pointer-events: none; }
-    .notice { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; background: #fff; color: #111827; box-shadow: 0 12px 32px rgba(15, 23, 42, .16); padding: 11px 13px; font-size: 13px; line-height: 1.45; transform: translateY(-4px); opacity: 0; animation: notice-in .18s ease forwards; }
+    #feedback { display: grid; gap: 8px; width: min(330px, calc(100vw - 44px)); min-height: 40px; pointer-events: none; }
+    .notice { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; background: #fff; color: #111827; box-shadow: 0 8px 24px rgba(15, 23, 42, .12); padding: 9px 12px; font-size: 13px; line-height: 1.4; transform: translateY(-4px); opacity: 0; animation: notice-in .18s ease forwards; }
     .notice.ok { border-left-color: #16a34a; }
     .notice.bad { border-left-color: #dc2626; }
     .notice.info { border-left-color: #2563eb; }
@@ -66,6 +66,10 @@ INDEX_HTML = r"""<!doctype html>
     .settings-actions { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--line); }
     .settings-actions label { white-space: nowrap; }
     .hint { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 0; }
+    .field-help { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 0; }
+    .option-list { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-start; }
+    .option-list label { display: grid; gap: 4px; max-width: 210px; white-space: normal; }
+    .option-title { display: inline-flex; gap: 6px; align-items: center; color: #334155; font-size: 13px; }
     .quota { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #f8fafc; display: grid; gap: 8px; }
     .quota-main { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font-size: 13px; color: #334155; }
     .quota-main strong { font-size: 15px; color: #111827; }
@@ -90,6 +94,7 @@ INDEX_HTML = r"""<!doctype html>
     pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; min-height: 0; overflow: auto; font-size: 12px; }
     .nodes { color: var(--muted); font-size: 12px; line-height: 1.45; height: 86px; overflow: auto; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .header-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 12px; background: #f8fafc; }
     @media (max-width: 980px) {
       .lower-grid { grid-template-columns: 1fr; }
@@ -100,6 +105,8 @@ INDEX_HTML = r"""<!doctype html>
       .settings-layout, .settings-side { grid-template-columns: 1fr; }
       .path-row, .command-row, .api-row { grid-template-columns: 1fr; }
       header { align-items: flex-start; flex-direction: column; }
+      .header-actions { justify-content: flex-start; }
+      #feedback { width: calc(100vw - 44px); }
     }
     @media (prefers-color-scheme: dark) {
       body { background: #0b1220; color: #e5e7eb; }
@@ -107,7 +114,8 @@ INDEX_HTML = r"""<!doctype html>
       input[type="text"], input[type="number"], input[type="password"], select, button.secondary, button.neutral, .notice, .quota { background: #0b1220; color: #e5e7eb; }
       .quota-main, .quota-main strong { color: #e5e7eb; }
       .quota-bar { background: #1f2937; }
-      label, .count, .nodes, .region-state { color: #9ca3af; }
+      label, .count, .nodes, .region-state, .field-help { color: #9ca3af; }
+      .option-title { color: #e5e7eb; }
       .pill { background: #0b1220; }
     }
   </style>
@@ -115,10 +123,11 @@ INDEX_HTML = r"""<!doctype html>
 <body>
   <header>
     <h1>OpenClash 地区过滤</h1>
-    <div class="row">
+    <div class="header-actions">
       <span id="status" class="pill">加载中</span>
       <button class="secondary" onclick="refresh(this)">刷新</button>
       <button onclick="applyNow(this)">立即过滤并应用</button>
+      <div id="feedback" aria-live="polite"></div>
     </div>
   </header>
   <main>
@@ -142,6 +151,7 @@ INDEX_HTML = r"""<!doctype html>
                 <select id="config_file_select" onchange="selectConfigFile()"></select>
                 <button class="neutral" onclick="loadConfigFiles(true, this)" type="button">刷新文件</button>
               </div>
+              <p class="field-help">重新读取 OpenClash 配置目录，方便从现有 YAML 中选择要处理的配置。</p>
             </div>
             <div class="field">
               <label>重载命令</label>
@@ -149,6 +159,7 @@ INDEX_HTML = r"""<!doctype html>
                 <input id="reload_command" type="text">
                 <button class="neutral" onclick="reloadOpenClash(this)" type="button">一键重载</button>
               </div>
+              <p class="field-help">执行配置中的 OpenClash 重启/重载命令，让已生成的配置进入运行态。</p>
             </div>
             <div class="field">
               <label>远程 YAML 订阅</label>
@@ -156,6 +167,7 @@ INDEX_HTML = r"""<!doctype html>
                 <input id="source_url" type="text" placeholder="https://example.com/clash.yaml">
                 <button class="neutral" onclick="refreshSubscription(this)" type="button">刷新订阅</button>
               </div>
+              <p class="field-help">从原始 Clash/OpenClash YAML 订阅拉取最新节点，并按当前地区规则生成过滤缓存。</p>
             </div>
             <div class="field">
               <label>本地订阅地址</label>
@@ -163,6 +175,7 @@ INDEX_HTML = r"""<!doctype html>
                 <input id="local_subscription_url" type="text" readonly>
                 <button class="neutral" onclick="copySubscriptionUrl(this)" type="button">复制</button>
               </div>
+              <p class="field-help">复制过滤工具暴露的订阅地址；当前方案下 OpenClash 主要使用本地输出配置文件。</p>
             </div>
             <div class="field">
               <label>OpenClash 输出配置</label>
@@ -170,28 +183,46 @@ INDEX_HTML = r"""<!doctype html>
                 <input id="output_config_path" type="text">
                 <button class="neutral" onclick="installFilteredConfig(this)" type="button">生成配置</button>
               </div>
+              <p class="field-help">把过滤后的 YAML 写入 OpenClash 配置目录；不会单独触发 OpenClash 重载。</p>
             </div>
           </div>
           <div class="settings-side">
-            <div class="field"><label>轮询间隔</label><input id="poll_seconds" type="number" min="5"></div>
+            <div class="field">
+              <label>轮询间隔</label>
+              <input id="poll_seconds" type="number" min="5">
+              <p class="field-help">自动监听开启时的检查频率，单位为秒。</p>
+            </div>
             <div class="field">
               <label>运行态验证 API</label>
               <div class="input-row api-row">
                 <input id="dashboard_api" type="text">
                 <button class="neutral" onclick="checkDashboardApi(this)" type="button">检查</button>
               </div>
+              <p class="field-help">连接 OpenClash Meta 控制 API，用于确认当前运行节点是否符合过滤结果。</p>
             </div>
             <div class="field full">
               <label>验证密钥</label>
               <input id="dashboard_secret" type="password" placeholder="可留空">
+              <p class="field-help">OpenClash Dashboard Secret；只在检查运行态 API 时使用。</p>
             </div>
             <div class="field full"><p class="hint">运行态验证 API 只用于检查 OpenClash 当前运行节点；不影响过滤本身。通常保持默认即可。</p></div>
           </div>
         </div>
         <div class="settings-actions">
-          <label><input id="automation_enabled" type="checkbox"> 自动监听配置变化</label>
-          <label><input id="allow_unknown" type="checkbox"> 允许未知地区节点</label>
-          <label><input id="verify_api" type="checkbox"> 应用后运行态验证</label>
+          <div class="option-list">
+            <label>
+              <span class="option-title"><input id="automation_enabled" type="checkbox"> 自动监听配置变化</span>
+              <span class="field-help">定期拉取远程订阅并重新生成过滤缓存。</span>
+            </label>
+            <label>
+              <span class="option-title"><input id="allow_unknown" type="checkbox"> 允许未知地区节点</span>
+              <span class="field-help">启用未匹配到地区规则的节点；关闭后未知节点会被排除。</span>
+            </label>
+            <label>
+              <span class="option-title"><input id="verify_api" type="checkbox"> 应用后运行态验证</span>
+              <span class="field-help">应用完成后检查 OpenClash 当前运行节点是否仍包含被禁用地区。</span>
+            </label>
+          </div>
           <button class="secondary" onclick="saveSettings(this)">保存设置</button>
         </div>
       </section>
@@ -207,7 +238,6 @@ INDEX_HTML = r"""<!doctype html>
       </section>
     </div>
   </main>
-  <div id="feedback" aria-live="polite"></div>
 <script>
 let state = null;
 let noticeTimer = null;
@@ -540,6 +570,11 @@ class AppState:
             if "regions" in patch and isinstance(patch["regions"], list):
                 config["regions"] = patch["regions"]
             self.store.save(config)
+            self.last_result = {
+                "ok": True,
+                "message": "设置已保存；如需让 OpenClash 立即使用新地区规则，请点击右上角“立即过滤并应用”。",
+                "applied": False,
+            }
             return config
 
     def apply(self) -> dict[str, Any]:
