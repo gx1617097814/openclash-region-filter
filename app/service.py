@@ -127,6 +127,7 @@ INDEX_HTML = r"""<!doctype html>
       <span id="status" class="pill">加载中</span>
       <button class="secondary" onclick="refresh(this)">刷新</button>
       <button onclick="applyNow(this)">立即过滤并应用</button>
+      <button class="secondary" onclick="saveSettings(this)">保存并应用</button>
       <div id="feedback" aria-live="polite"></div>
     </div>
   </header>
@@ -223,7 +224,6 @@ INDEX_HTML = r"""<!doctype html>
               <span class="field-help">应用完成后检查 OpenClash 当前运行节点是否仍包含被禁用地区。</span>
             </label>
           </div>
-          <button class="secondary" onclick="saveSettings(this)">保存设置</button>
         </div>
       </section>
 
@@ -425,7 +425,7 @@ function selectConfigFile() {
 async function reloadOpenClash(button) {
   return withFeedback(button, {busy: "重载中", success: "重载完成", error: "重载失败"}, async () => {
     document.getElementById("status").textContent = "重载中";
-    await saveSettings();
+    await saveOnly();
     const result = await api("/api/reload", {method: "POST"});
     document.getElementById("result").textContent = JSON.stringify(result, null, 2);
     document.getElementById("status").textContent = result.ok ? "重载完成" : "重载失败";
@@ -435,7 +435,7 @@ async function reloadOpenClash(button) {
 
 async function checkDashboardApi(button) {
   return withFeedback(button, {busy: "检查中", success: "检查通过", error: "检查失败"}, async () => {
-    await saveSettings();
+    await saveOnly();
     const result = await api("/api/dashboard/status", {method: "POST"});
     document.getElementById("result").textContent = JSON.stringify(result, null, 2);
     if (!result.ok) throw new Error(result.error || result.reason || "运行态验证 API 不可用");
@@ -486,22 +486,32 @@ function collectSettings() {
   };
 }
 
+async function saveOnly() {
+  return api("/api/settings", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(collectSettings())
+  });
+}
+
 async function saveSettings(button) {
-  return withFeedback(button, {busy: "保存中", success: "已保存", error: "保存失败"}, async () => {
+  return withFeedback(button, {busy: "保存并应用中", success: "保存并应用完成", error: "保存并应用失败"}, async () => {
     document.getElementById("status").textContent = "保存中";
-    await api("/api/settings", {
+    const result = await api("/api/settings/apply", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(collectSettings())
     });
+    document.getElementById("result").textContent = JSON.stringify(result, null, 2);
     await refresh();
+    if (!result.ok) throw new Error(result.error || "保存并应用失败");
   });
 }
 
 async function applyNow(button) {
   return withFeedback(button, {busy: "应用中", success: "应用完成", error: "应用失败"}, async () => {
     document.getElementById("status").textContent = "应用中";
-    await saveSettings();
+    await saveOnly();
     const result = await api("/api/apply", {method: "POST"});
     document.getElementById("result").textContent = JSON.stringify(result, null, 2);
     await refresh();
@@ -512,7 +522,7 @@ async function applyNow(button) {
 async function refreshSubscription(button) {
   return withFeedback(button, {busy: "刷新订阅中", success: "订阅已刷新", error: "刷新订阅失败"}, async () => {
     document.getElementById("status").textContent = "刷新订阅中";
-    await saveSettings();
+    await saveOnly();
     const result = await api("/api/subscription/refresh", {method: "POST"});
     document.getElementById("result").textContent = JSON.stringify(result, null, 2);
     await refresh();
@@ -523,7 +533,7 @@ async function refreshSubscription(button) {
 async function installFilteredConfig(button) {
   return withFeedback(button, {busy: "生成配置中", success: "配置已生成", error: "生成配置失败"}, async () => {
     document.getElementById("status").textContent = "生成配置中";
-    await saveSettings();
+    await saveOnly();
     const refreshResult = await api("/api/subscription/refresh", {method: "POST"});
     if (!refreshResult.ok) {
       document.getElementById("result").textContent = JSON.stringify(refreshResult, null, 2);
@@ -572,7 +582,7 @@ class AppState:
             self.store.save(config)
             self.last_result = {
                 "ok": True,
-                "message": "设置已保存；如需让 OpenClash 立即使用新地区规则，请点击右上角“立即过滤并应用”。",
+                "message": "设置已保存；如需让 OpenClash 立即使用新地区规则，请点击右上角“保存并应用”或“立即过滤并应用”。",
                 "applied": False,
             }
             return config
@@ -580,10 +590,76 @@ class AppState:
     def apply(self) -> dict[str, Any]:
         with self.lock:
             config = self.store.load()
+        if str(config.get("subscription", {}).get("source_url", "")).strip():
+            return self.apply_subscription_config(config)
         result = apply_filter(config)
         with self.lock:
             self.last_result = result.to_dict()
         return result.to_dict()
+
+    def apply_subscription_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        updated_config, refresh_result = refresh_subscription(config)
+        refresh_payload = refresh_result.to_dict()
+        with self.lock:
+            if refresh_result.ok:
+                self.store.save(updated_config)
+            self.last_subscription_result = refresh_payload
+
+        if not refresh_result.ok:
+            payload = {
+                "ok": False,
+                "stage": "refresh_subscription",
+                "error": refresh_result.error or "刷新订阅失败",
+                "refresh": refresh_payload,
+            }
+            with self.lock:
+                self.last_result = payload
+            return payload
+
+        install_result = install_filtered_config(updated_config)
+        install_payload = install_result.to_dict()
+        with self.lock:
+            self.last_install_result = install_payload
+
+        filter_payload = refresh_result.filter_result or {}
+        payload: dict[str, Any] = {
+            **filter_payload,
+            "ok": bool(filter_payload.get("ok", True)) and install_result.ok,
+            "changed": bool(refresh_result.changed or install_result.changed),
+            "config_path": install_result.output_config_path,
+            "refresh": refresh_payload,
+            "install": install_payload,
+        }
+
+        if not install_result.ok:
+            payload.update({"ok": False, "stage": "install_filtered_config", "error": install_result.error})
+            with self.lock:
+                self.last_result = payload
+            return payload
+
+        reload_result = self.reload_openclash()
+        payload["reload"] = reload_result
+        if not reload_result.get("ok"):
+            payload.update({"ok": False, "stage": "reload_openclash", "error": reload_result.get("error") or reload_result.get("output") or "重载失败"})
+            with self.lock:
+                self.last_result = payload
+            return payload
+
+        if updated_config["openclash"].get("verify_api"):
+            payload["verification"] = verify_running_state(updated_config)
+            payload["verified"] = not payload["verification"].get("bad_nodes")
+            if payload["verification"].get("ok") is False or payload["verification"].get("bad_nodes"):
+                payload["ok"] = False
+                payload["stage"] = "verify_running_state"
+                payload["error"] = "运行态验证失败"
+
+        with self.lock:
+            self.last_result = payload
+        return payload
+
+    def save_and_apply(self, patch: dict[str, Any]) -> dict[str, Any]:
+        config = self.save_config(patch)
+        return self.apply_subscription_config(config) if str(config.get("subscription", {}).get("source_url", "")).strip() else self.apply()
 
     def refresh_subscription(self) -> dict[str, Any]:
         with self.lock:
@@ -826,6 +902,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             config = self.server.app_state.save_config(self.read_json())
             self.send_json({"ok": True, "config": config})
+            return
+        if path == "/api/settings/apply":
+            self.send_json(self.server.app_state.save_and_apply(self.read_json()))
             return
         if path == "/api/apply":
             self.send_json(self.server.app_state.apply())
