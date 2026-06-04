@@ -36,7 +36,7 @@ INDEX_HTML = r"""<!doctype html>
     section { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
     h2 { margin: 0; font-size: 16px; }
     .section-head { display: grid; gap: 6px; margin-bottom: 16px; }
-    .lower-grid { --lower-panel-height: 560px; display: grid; grid-template-columns: 540px minmax(0, 1fr); gap: 16px; align-items: stretch; }
+    .lower-grid { --lower-panel-height: 560px; display: grid; grid-template-columns: minmax(620px, 1fr) minmax(420px, 520px); gap: 16px; align-items: stretch; }
     .lower-grid section { box-sizing: border-box; height: var(--lower-panel-height); margin-bottom: 0; }
     .settings-section { min-height: 0; overflow: auto; }
     .settings-layout { display: grid; gap: 22px; align-items: start; justify-content: start; }
@@ -57,7 +57,7 @@ INDEX_HTML = r"""<!doctype html>
     button:disabled { opacity: .55; cursor: wait; }
     button.is-success { border-color: #16a34a; background: #16a34a; color: #fff; opacity: 1; }
     button.is-error { border-color: #dc2626; background: #dc2626; color: #fff; opacity: 1; }
-    #feedback { display: grid; gap: 8px; width: min(330px, calc(100vw - 44px)); min-height: 40px; pointer-events: none; }
+    #feedback { position: fixed; top: 76px; right: 22px; z-index: 20; display: grid; gap: 8px; width: min(330px, calc(100vw - 44px)); pointer-events: none; }
     .notice { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; background: #fff; color: #111827; box-shadow: 0 8px 24px rgba(15, 23, 42, .12); padding: 9px 12px; font-size: 13px; line-height: 1.4; transform: translateY(-4px); opacity: 0; animation: notice-in .18s ease forwards; }
     .notice.ok { border-left-color: #16a34a; }
     .notice.bad { border-left-color: #dc2626; }
@@ -106,7 +106,7 @@ INDEX_HTML = r"""<!doctype html>
       .path-row, .command-row, .api-row { grid-template-columns: 1fr; }
       header { align-items: flex-start; flex-direction: column; }
       .header-actions { justify-content: flex-start; }
-      #feedback { width: calc(100vw - 44px); }
+      #feedback { top: 92px; width: calc(100vw - 44px); }
     }
     @media (prefers-color-scheme: dark) {
       body { background: #0b1220; color: #e5e7eb; }
