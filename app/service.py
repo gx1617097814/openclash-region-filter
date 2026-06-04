@@ -36,7 +36,7 @@ INDEX_HTML = r"""<!doctype html>
     section { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
     h2 { margin: 0; font-size: 16px; }
     .section-head { display: grid; gap: 6px; margin-bottom: 16px; }
-    .lower-grid { --lower-panel-height: 560px; display: grid; grid-template-columns: minmax(620px, 1fr) minmax(420px, 520px); gap: 16px; align-items: stretch; }
+    .lower-grid { --lower-panel-height: 560px; display: grid; grid-template-columns: 540px minmax(0, 1fr); gap: 16px; align-items: stretch; }
     .lower-grid section { box-sizing: border-box; height: var(--lower-panel-height); margin-bottom: 0; }
     .settings-section { min-height: 0; overflow: auto; }
     .settings-layout { display: grid; gap: 22px; align-items: start; justify-content: start; }
