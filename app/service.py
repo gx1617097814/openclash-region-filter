@@ -38,9 +38,12 @@ INDEX_HTML = r"""<!doctype html>
     section { box-sizing: border-box; width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; min-width: 0; }
     h2 { margin: 0; font-size: 16px; }
     .section-head { display: grid; gap: 6px; margin-bottom: 16px; }
-    .lower-grid { --lower-panel-height: 500px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
-    .lower-grid section { box-sizing: border-box; height: var(--lower-panel-height); margin-bottom: 0; min-width: 0; }
+    .layout-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; margin-bottom: 16px; }
+    .layout-row section { margin-bottom: 0; min-width: 0; }
+    .main-row section { height: 620px; }
     .subscription-section { display: grid; align-content: start; gap: 16px; }
+    .quota-section { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 16px; align-content: start; }
+    .regions-section { overflow: auto; }
     .source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
     .source-row input { min-width: 0; }
     label { font-size: 13px; color: #334155; }
@@ -91,9 +94,9 @@ INDEX_HTML = r"""<!doctype html>
     .header-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 12px; background: #f8fafc; }
     @media (max-width: 980px) {
-      .lower-grid { grid-template-columns: 1fr; }
-      .lower-grid section { height: auto; }
-      .result-section { height: 360px !important; }
+      .layout-row { grid-template-columns: 1fr; }
+      .main-row section { height: auto; }
+      .result-section { height: 500px !important; }
     }
     @media (max-width: 860px) {
       .source-row, .result-grid { grid-template-columns: 1fr; }
@@ -122,34 +125,36 @@ INDEX_HTML = r"""<!doctype html>
     </div>
   </header>
   <main>
-    <section class="subscription-section">
-      <div class="section-head">
-        <h2>订阅设置</h2>
-        <p class="hint">填写原始 Clash/OpenClash YAML 订阅。系统每小时自动更新一次，也可以随时手动更新。</p>
-      </div>
-      <div class="source-row">
-        <input id="source_url" type="text" inputmode="url" placeholder="https://example.com/clash.yaml" aria-label="订阅链接">
-        <button class="secondary" onclick="updateSubscription(this)" type="button">立即更新订阅</button>
-        <button onclick="saveSettings(this)" type="button">保存并应用</button>
-      </div>
-    </section>
+    <div class="layout-row top-row">
+      <section class="subscription-section">
+        <div class="section-head">
+          <h2>订阅设置</h2>
+          <p class="hint">填写原始 Clash/OpenClash YAML 订阅。系统每小时自动更新一次，也可以随时手动更新。</p>
+        </div>
+        <div class="source-row">
+          <input id="source_url" type="text" inputmode="url" placeholder="https://example.com/clash.yaml" aria-label="订阅链接">
+          <button class="secondary" onclick="updateSubscription(this)" type="button">立即更新订阅</button>
+          <button onclick="saveSettings(this)" type="button">保存并应用</button>
+        </div>
+      </section>
 
-    <section>
-      <div class="section-head">
-        <h2>地区规则</h2>
-        <p class="hint">只显示当前订阅实际出现的地区；无法识别地区的节点归入“其他地区”。调整后点击上方“保存并应用”。</p>
-      </div>
-      <div id="regions" class="regions"></div>
-    </section>
-
-    <div class="lower-grid">
-      <section>
+      <section class="quota-section">
         <h2>订阅额度</h2>
         <div id="quota" class="quota">
           <div class="quota-main"><strong>读取中</strong><span>--</span></div>
           <div class="quota-bar"><div class="quota-fill"></div></div>
           <div class="quota-meta"><span>到期：--</span><span>检查：--</span></div>
         </div>
+      </section>
+    </div>
+
+    <div class="layout-row main-row">
+      <section class="regions-section">
+        <div class="section-head">
+          <h2>地区规则</h2>
+          <p class="hint">只显示当前订阅实际出现的地区；无法识别地区的节点归入“其他地区”。调整后点击上方“保存并应用”。</p>
+        </div>
+        <div id="regions" class="regions"></div>
       </section>
 
       <section class="result-section">

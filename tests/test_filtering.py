@@ -206,6 +206,8 @@ class FilteringTest(unittest.TestCase):
         self.assertIn("订阅额度", INDEX_HTML)
         self.assertIn("立即更新订阅", INDEX_HTML)
         self.assertIn('id="result_json"', INDEX_HTML)
+        self.assertIn('class="layout-row top-row"', INDEX_HTML)
+        self.assertIn('class="layout-row main-row"', INDEX_HTML)
         self.assertNotIn("一键重载", INDEX_HTML)
         self.assertNotIn("生成配置", INDEX_HTML)
         self.assertNotIn("验证密钥", INDEX_HTML)
