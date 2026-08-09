@@ -513,7 +513,7 @@ def apply_filter(config: dict[str, Any], reload_openclash: bool = True) -> Filte
 
         if config["openclash"].get("verify_api"):
             result.verification = verify_running_state(config)
-            result.verified = not result.verification.get("bad_nodes")
+            result.verified = bool(result.verification.get("ok")) and not result.verification.get("bad_nodes")
 
         return result
     except Exception as exc:
@@ -544,17 +544,49 @@ def verify_running_state(config: dict[str, Any]) -> dict[str, Any]:
     enabled_regions = set(config["filter"].get("enabled_regions", []))
     excluded_regions = set(config["filter"].get("excluded_regions", []))
     allow_unknown = bool(config["filter"].get("allow_unknown", False))
-    secret = str(config["openclash"].get("dashboard_secret", ""))
+    secrets: list[str] = []
+    configured_secret = str(config["openclash"].get("dashboard_secret", "")).strip()
+    if configured_secret:
+        secrets.append(configured_secret)
 
-    request = urllib.request.Request(f"{api}/proxies")
-    if secret:
-        request.add_header("Authorization", f"Bearer {secret}")
+    candidate_paths = [
+        config["openclash"].get("runtime_config_path"),
+        "/etc/openclash/openclash-region-filter.yaml",
+        config["openclash"].get("config_path"),
+        config.get("subscription", {}).get("output_config_path"),
+    ]
+    for candidate in candidate_paths:
+        if not candidate:
+            continue
+        try:
+            candidate_data = load_yaml(str(candidate))
+        except (OSError, ValueError):
+            continue
+        discovered_secret = str(candidate_data.get("secret", "")).strip()
+        if discovered_secret and discovered_secret not in secrets:
+            secrets.append(discovered_secret)
 
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            payload = yaml.safe_load(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError) as exc:
-        return {"ok": False, "error": str(exc)}
+    payload: Any = None
+    authorization_failed = False
+    for secret in secrets + ([""] if not secrets else []):
+        request = urllib.request.Request(f"{api}/proxies")
+        if secret:
+            request.add_header("Authorization", f"Bearer {secret}")
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                payload = yaml.safe_load(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code in {401, 403}:
+                authorization_failed = True
+                continue
+            return {"ok": False, "error": f"Dashboard API returned HTTP {exc.code}"}
+        except (urllib.error.URLError, TimeoutError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    if payload is None:
+        error = "Dashboard API authorization failed" if authorization_failed else "Dashboard API unavailable"
+        return {"ok": False, "error": error}
 
     proxies = payload.get("proxies", {}) if isinstance(payload, dict) else {}
     leaf_names = []

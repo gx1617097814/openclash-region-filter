@@ -2,8 +2,8 @@ from __future__ import annotations
 
 DEFAULT_CONFIG = {
     "openclash": {
-        "config_path": "/etc/openclash/config/猎户座.yaml",
-        "runtime_config_path": "/etc/openclash/猎户座.yaml",
+        "config_path": "/etc/openclash/config/openclash-region-filter.yaml",
+        "runtime_config_path": "/etc/openclash/openclash-region-filter.yaml",
         "reload_command": "nsenter -t 1 -m -u -i -n -p -- /etc/init.d/openclash restart",
         "dashboard_api": "http://127.0.0.1:9090",
         "dashboard_secret": "",

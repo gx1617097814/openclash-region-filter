@@ -47,7 +47,7 @@ Region changes must be a two-step workflow at most:
 5. Restart OpenClash.
 6. Verify running state when verification is enabled.
 
-"立即过滤并应用" is kept as an explicit apply command. With a remote subscription configured, it also regenerates from the original subscription rather than filtering an already-filtered output file.
+The UI intentionally exposes no separate refresh, reload, install, or verification commands. Those operations are automatic.
 
 ## Region State Rules
 
@@ -58,10 +58,10 @@ Region changes must be a two-step workflow at most:
 
 ## Current UI Notes
 
-- Header actions include: refresh, apply now, save and apply.
+- The only normal command button is "保存并应用" beside the source subscription input.
 - Button feedback is shown as a floating notice and must not reserve blank space beside the buttons.
-- The lower dashboard area uses a 50/50 split between "运行设置" and "最近结果" on desktop widths.
-- The quota bar is shown above "最近结果".
+- Only regions with at least one node in the current source subscription are displayed.
+- The lower dashboard area uses a 50/50 split between subscription quota and the latest result on desktop widths.
 
 ## Router Deployment
 

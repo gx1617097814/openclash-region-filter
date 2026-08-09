@@ -62,4 +62,6 @@ docker ps --filter "name=$RUN" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports
 echo "== logs =="
 docker logs --tail 30 "$RUN" || true
 echo "== state =="
-curl -fsS "http://127.0.0.1:$PORT/api/state" | sed 's/"dashboard_secret": "[^"]*"/"dashboard_secret": "***"/g' || true
+curl -fsS "http://127.0.0.1:$PORT/api/state" \
+  | sed 's/"dashboard_secret": "[^"]*"/"dashboard_secret": "***"/g' \
+  | sed 's/"source_url": "[^"]*"/"source_url": "***"/g' || true

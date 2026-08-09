@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 from app.defaults import DEFAULT_CONFIG
 from app.filtering import filter_config_data, scan_regions
 from app.config import merge_regions
+from app.service import AppState, INDEX_HTML
 from app.subscription import install_filtered_config, parse_subscription_userinfo, refresh_subscription
 
 
@@ -163,6 +164,8 @@ class FilteringTest(unittest.TestCase):
         self.assertTrue(install_result.ok)
         self.assertIn("auto_gb", result.regions_added)
         self.assertIn("auto_gb", [region["id"] for region in updated_config["regions"]])
+        self.assertIn("auto_gb", updated_config["filter"]["excluded_regions"])
+        self.assertIn("hong_kong", updated_config["filter"]["excluded_regions"])
         self.assertEqual(names, ["🇸🇬新加坡-A"])
         self.assertEqual(installed["proxies"], rendered["proxies"])
 
@@ -177,6 +180,34 @@ class FilteringTest(unittest.TestCase):
         self.assertEqual(info["used_text"], "3.0 GB")
         self.assertEqual(info["total_text"], "10.0 GB")
         self.assertEqual(info["expire_text"], "2030-01-01 08:00:00")
+
+    def test_managed_mode_keeps_internal_controls_automatic(self) -> None:
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["automation"]["enabled"] = False
+        config["filter"]["allow_unknown"] = False
+        config["openclash"]["verify_api"] = False
+        config["openclash"]["config_path"] = "/tmp/manual.yaml"
+
+        managed = AppState._managed_config(config)
+
+        self.assertTrue(managed["automation"]["enabled"])
+        self.assertTrue(managed["filter"]["allow_unknown"])
+        self.assertTrue(managed["openclash"]["verify_api"])
+        self.assertEqual(
+            managed["openclash"]["config_path"],
+            managed["subscription"]["output_config_path"],
+        )
+
+    def test_dashboard_only_exposes_required_controls(self) -> None:
+        self.assertIn("保存并应用", INDEX_HTML)
+        self.assertIn("订阅链接", INDEX_HTML)
+        self.assertIn("订阅额度", INDEX_HTML)
+        self.assertNotIn("一键重载", INDEX_HTML)
+        self.assertNotIn("生成配置", INDEX_HTML)
+        self.assertNotIn("验证密钥", INDEX_HTML)
+        self.assertNotIn("刷新文件", INDEX_HTML)
+        self.assertNotIn("立即过滤并应用", INDEX_HTML)
+        self.assertIn("filter(region => (state.scan.region_counts[region.id] || 0) > 0)", INDEX_HTML)
 
 
 if __name__ == "__main__":
