@@ -120,4 +120,4 @@ python -m app.service --config ./data/config.json --once
 
 - 当前版本过滤 inline `proxies` 和 `proxy-groups`。如果配置使用 `proxy-providers`，会给出警告，但不会改写 provider 文件。
 - 面板没有做登录认证，建议只在内网访问，或者由 iStore/反代层加认证。
-- 面板只保留订阅链接、实际出现的地区开关、保存并应用、订阅额度和最近结果。
+- 面板只保留订阅链接、实际出现的地区开关、“立即更新订阅”、“保存并应用”、订阅额度和最近结果。系统默认每小时自动刷新；最近结果同时保留摘要和 JSON 明细。

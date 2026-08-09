@@ -166,6 +166,8 @@ class FilteringTest(unittest.TestCase):
         self.assertIn("auto_gb", [region["id"] for region in updated_config["regions"]])
         self.assertIn("auto_gb", updated_config["filter"]["excluded_regions"])
         self.assertIn("hong_kong", updated_config["filter"]["excluded_regions"])
+        self.assertEqual(result.filter_result["config_path"], str(raw))
+        self.assertNotIn(source.as_uri(), str(result.filter_result))
         self.assertEqual(names, ["🇸🇬新加坡-A"])
         self.assertEqual(installed["proxies"], rendered["proxies"])
 
@@ -202,11 +204,14 @@ class FilteringTest(unittest.TestCase):
         self.assertIn("保存并应用", INDEX_HTML)
         self.assertIn("订阅链接", INDEX_HTML)
         self.assertIn("订阅额度", INDEX_HTML)
+        self.assertIn("立即更新订阅", INDEX_HTML)
+        self.assertIn('id="result_json"', INDEX_HTML)
         self.assertNotIn("一键重载", INDEX_HTML)
         self.assertNotIn("生成配置", INDEX_HTML)
         self.assertNotIn("验证密钥", INDEX_HTML)
         self.assertNotIn("刷新文件", INDEX_HTML)
         self.assertNotIn("立即过滤并应用", INDEX_HTML)
+        self.assertNotIn("后续无需手动操作", INDEX_HTML)
         self.assertIn("filter(region => (state.scan.region_counts[region.id] || 0) > 0)", INDEX_HTML)
 
 

@@ -64,4 +64,5 @@ docker logs --tail 30 "$RUN" || true
 echo "== state =="
 curl -fsS "http://127.0.0.1:$PORT/api/state" \
   | sed 's/"dashboard_secret": "[^"]*"/"dashboard_secret": "***"/g' \
-  | sed 's/"source_url": "[^"]*"/"source_url": "***"/g' || true
+  | sed 's/"source_url": "[^"]*"/"source_url": "***"/g' \
+  | sed 's#"config_path": "https\?://[^"]*"#"config_path": "***"#g' || true

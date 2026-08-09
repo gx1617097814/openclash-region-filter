@@ -196,7 +196,7 @@ def refresh_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], Subscr
         updated_config = dict(config)
         updated_config["regions"] = prepared_config["regions"]
         filter_payload = filter_result.to_dict()
-        filter_payload["config_path"] = source_url
+        filter_payload["config_path"] = str(source_path)
 
         return updated_config, SubscriptionResult(
             ok=True,

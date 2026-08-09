@@ -38,16 +38,15 @@ INDEX_HTML = r"""<!doctype html>
     section { box-sizing: border-box; width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; min-width: 0; }
     h2 { margin: 0; font-size: 16px; }
     .section-head { display: grid; gap: 6px; margin-bottom: 16px; }
-    .lower-grid { --lower-panel-height: 250px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+    .lower-grid { --lower-panel-height: 500px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
     .lower-grid section { box-sizing: border-box; height: var(--lower-panel-height); margin-bottom: 0; min-width: 0; }
     .subscription-section { display: grid; align-content: start; gap: 16px; }
-    .source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+    .source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
     .source-row input { min-width: 0; }
-    .automation-note { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 8px; }
-    .automation-note strong { font-size: 14px; }
     label { font-size: 13px; color: #334155; }
     input[type="text"] { border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; font-size: 14px; width: 100%; height: 40px; box-sizing: border-box; background: #fff; color: #111827; }
     button { border: 1px solid #0f766e; background: var(--accent); color: #fff; border-radius: 6px; padding: 9px 12px; min-height: 40px; font-size: 14px; cursor: pointer; white-space: nowrap; transition: background .16s ease, border-color .16s ease, color .16s ease, opacity .16s ease; }
+    button.secondary { background: #fff; color: var(--accent); }
     button:disabled { opacity: .55; cursor: wait; }
     button.is-success { border-color: #16a34a; background: #16a34a; color: #fff; opacity: 1; }
     button.is-error { border-color: #dc2626; background: #dc2626; color: #fff; opacity: 1; }
@@ -78,14 +77,15 @@ INDEX_HTML = r"""<!doctype html>
     .count { color: var(--muted); font-size: 12px; }
     .bad { color: #b42318; }
     .ok { color: #087443; }
-    .result-section { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 10px; min-height: 0; overflow: hidden; }
-    .result-summary { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #f8fafc; display: grid; gap: 10px; align-content: start; overflow: auto; }
+    .result-section { display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 10px; min-height: 0; overflow: hidden; }
+    .result-summary { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #f8fafc; display: grid; gap: 10px; align-content: start; }
     .result-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; min-width: 0; flex-wrap: wrap; }
     .result-title strong { font-size: 14px; }
     .result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
     .result-item { display: grid; gap: 3px; min-width: 0; }
     .result-item span { color: var(--muted); font-size: 12px; }
     .result-item strong { font-size: 13px; overflow-wrap: anywhere; }
+    .result-json { box-sizing: border-box; width: 100%; min-height: 0; margin: 0; white-space: pre-wrap; word-break: break-word; overflow: auto; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px; }
     .nodes { color: var(--muted); font-size: 12px; line-height: 1.45; height: 86px; overflow: auto; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .header-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; }
@@ -105,7 +105,7 @@ INDEX_HTML = r"""<!doctype html>
     @media (prefers-color-scheme: dark) {
       body { background: #0b1220; color: #e5e7eb; }
       header, section { background: #111827; }
-      input[type="text"], .notice, .quota, .result-summary { background: #0b1220; color: #e5e7eb; }
+      input[type="text"], button.secondary, .notice, .quota, .result-summary { background: #0b1220; color: #e5e7eb; }
       .quota-main, .quota-main strong { color: #e5e7eb; }
       .quota-bar { background: #1f2937; }
       label, .count, .nodes, .region-state { color: #9ca3af; }
@@ -125,15 +125,12 @@ INDEX_HTML = r"""<!doctype html>
     <section class="subscription-section">
       <div class="section-head">
         <h2>订阅设置</h2>
-        <p class="hint">填写原始 Clash/OpenClash YAML 订阅。工具会定时更新、过滤并自动交给 OpenClash 使用。</p>
+        <p class="hint">填写原始 Clash/OpenClash YAML 订阅。系统每小时自动更新一次，也可以随时手动更新。</p>
       </div>
       <div class="source-row">
         <input id="source_url" type="text" inputmode="url" placeholder="https://example.com/clash.yaml" aria-label="订阅链接">
+        <button class="secondary" onclick="updateSubscription(this)" type="button">立即更新订阅</button>
         <button onclick="saveSettings(this)" type="button">保存并应用</button>
-      </div>
-      <div class="automation-note">
-        <strong>后续无需手动操作</strong>
-        <p class="hint">系统会自动刷新订阅、生成过滤配置、在配置变化时重载 OpenClash，并检查运行节点是否符合地区规则。</p>
       </div>
     </section>
 
@@ -158,6 +155,7 @@ INDEX_HTML = r"""<!doctype html>
       <section class="result-section">
         <h2>最近结果</h2>
         <div id="result" class="result-summary">暂无运行结果</div>
+        <pre id="result_json" class="result-json">暂无详细结果</pre>
       </section>
     </div>
   </main>
@@ -305,6 +303,8 @@ function renderQuota(info) {
 
 function renderResult(result, subscriptionResult, scan) {
   const host = document.getElementById("result");
+  const jsonHost = document.getElementById("result_json");
+  jsonHost.textContent = JSON.stringify(result || subscriptionResult || scan || {}, null, 2);
   if (!result) {
     const count = Number(scan && scan.node_count || 0);
     host.innerHTML = `<div class="result-title"><strong>等待首次应用</strong><span class="pill">${count} 个源节点</span></div>
@@ -382,6 +382,15 @@ async function saveSettings(button) {
     });
     await refresh();
     if (!result.ok) throw new Error(result.error || "保存并应用失败");
+  });
+}
+
+async function updateSubscription(button) {
+  return withFeedback(button, {busy: "更新中", success: "订阅已更新", error: "更新失败"}, async () => {
+    document.getElementById("status").textContent = "更新订阅中";
+    const result = await api("/api/apply", {method: "POST"});
+    await refresh();
+    if (!result.ok) throw new Error(result.error || "更新订阅失败");
   });
 }
 
@@ -626,6 +635,22 @@ def list_config_files(config_path: str) -> dict[str, Any]:
     return {"directory": str(directory), "files": files}
 
 
+def sanitize_result_payload(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        sanitized = {}
+        for key, value in payload.items():
+            if key in {"source_url", "dashboard_secret"}:
+                sanitized[key] = ""
+            elif key == "config_path" and isinstance(value, str) and value.startswith(("http://", "https://")):
+                sanitized[key] = "remote subscription"
+            else:
+                sanitized[key] = sanitize_result_payload(value)
+        return sanitized
+    if isinstance(payload, list):
+        return [sanitize_result_payload(value) for value in payload]
+    return payload
+
+
 def subscription_authorized(config: dict[str, Any], query: dict[str, list[str]], headers: Any) -> bool:
     token = str(config.get("subscription", {}).get("token", ""))
     if not token:
@@ -779,8 +804,8 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "config": response_config,
                     "scan": scan,
-                    "last_result": self.server.app_state.last_result,
-                    "last_subscription_result": self.server.app_state.last_subscription_result,
+                    "last_result": sanitize_result_payload(self.server.app_state.last_result),
+                    "last_subscription_result": sanitize_result_payload(self.server.app_state.last_subscription_result),
                     "last_install_result": self.server.app_state.last_install_result,
                     "subscription_info": self.server.app_state.subscription_info(),
                 }
