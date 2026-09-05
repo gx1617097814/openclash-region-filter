@@ -292,6 +292,7 @@ class FilteringTest(unittest.TestCase):
     def test_dashboard_uses_requested_latency_bands_and_fastest_summary(self) -> None:
         self.assertIn("delay<=200?'good':delay<=600?'mid':'bad'", INDEX_HTML)
         self.assertIn("最快 ${esc(fastest.name)}", INDEX_HTML)
+        self.assertIn("p.latency?.results?.[selected]", INDEX_HTML)
 
     def test_state_returns_result_for_active_profile_only(self) -> None:
         config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
