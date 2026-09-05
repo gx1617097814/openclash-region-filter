@@ -294,6 +294,10 @@ class FilteringTest(unittest.TestCase):
         self.assertIn("最快 ${esc(fastest.name)}", INDEX_HTML)
         self.assertIn("p.latency?.results?.[selected]", INDEX_HTML)
 
+    def test_dashboard_colors_quota_by_remaining_percent(self) -> None:
+        self.assertIn("percent<20?'low':percent<60?'medium':'healthy'", INDEX_HTML)
+        self.assertIn("quota-fill ${quotaLevel(pct)}", INDEX_HTML)
+
     def test_state_returns_result_for_active_profile_only(self) -> None:
         config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
         active = get_profile(config)

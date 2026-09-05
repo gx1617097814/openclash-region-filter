@@ -31,7 +31,10 @@
     .quota { display:grid; gap:5px; }
     .quota-line { display:flex; justify-content:space-between; gap:10px; align-items:baseline; font-size:12px; }
     .quota-detail { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:11px; }
-    .quota-bar { height:7px; background:#e6ebf0; border-radius:99px; overflow:hidden; } .quota-fill { height:100%; background:var(--green); }
+    .quota-bar { height:7px; background:#e6ebf0; border-radius:99px; overflow:hidden; }
+    .quota-fill { height:100%; background:var(--green); }
+    .quota-fill.medium { background:#d18a00; }
+    .quota-fill.low { background:var(--red); }
     .actions { display:flex; flex-wrap:wrap; gap:8px; }
     .region-controls { display:flex; flex-wrap:wrap; gap:8px; align-items:end; justify-content:flex-end; }
     .compact-field { display:grid; gap:4px; color:var(--muted); font-size:11px; }
@@ -105,10 +108,11 @@ async function api(path,body){ const response=await fetch(path,{method:"POST",he
 async function busy(button,text,task){ const old=button?.textContent; if(button){button.disabled=true;button.textContent=text} try{const value=await task();notice("操作完成","ok");return value}catch(error){notice(error.message,"bad");throw error}finally{if(button){button.disabled=false;button.textContent=old}} }
 function active(){return state.config.subscriptions.find(p=>p.id===state.config.active_subscription_id)}
 function intervalText(seconds){if(!seconds)return"关闭";if(seconds%86400===0)return`每 ${seconds/86400} 天`;if(seconds%3600===0)return`每 ${seconds/3600} 小时`;return`每 ${seconds/60} 分钟`}
+function quotaLevel(percent){return percent<20?'low':percent<60?'medium':'healthy'}
 function profileSummary(p){const scan=state.scans[p.id]||{},counts=scan.region_counts||{},labels=new Map((scan.regions||p.regions||[]).map(r=>[r.id,r.label]));const parts=Object.entries(counts).filter(([,count])=>count>0).slice(0,4).map(([id,count])=>`${labels.get(id)||id} ${count}`);return scan.node_count?`${scan.node_count} 个节点${parts.length?' · '+parts.join(' / '):''}`:'尚未读取节点'}
 function subscriptionCard(p){const on=p.id===state.config.active_subscription_id,q=p.quota||{},pct=Math.max(0,Math.min(100,Number(q.percent_remaining||0))),scan=state.scans[p.id]||{},available=Object.entries(scan.region_counts||{}).reduce((sum,[id,count])=>sum+(isEnabled(p,{id,default_enabled:(scan.regions||p.regions||[]).find(r=>r.id===id)?.default_enabled})?count:0),0);return `<article class="sub-card ${on?'active':''}">
   <div class="sub-title"><div><h3>${esc(p.name)}</h3><div class="sub-summary" title="${esc(profileSummary(p))}">${esc(profileSummary(p))}</div></div><span class="pill ${on?'live':''}">${on?'当前使用':'待机'}</span></div>
-  <div class="quota"><div class="quota-line"><strong>${q.ok?'剩余 '+esc(q.remaining_text||'未知'):'暂无额度信息'}</strong><span>${q.ok?esc(q.percent_remaining)+'%':''}</span></div><div class="quota-bar"><div class="quota-fill" style="width:${pct}%"></div></div><div class="quota-detail">${q.ok?`已用 ${esc(q.used_text||'未知')} / ${esc(q.total_text||'未知')} · 到期 ${esc(q.expire_text||'未知')}`:'刷新后读取订阅额度'}</div></div>
+  <div class="quota"><div class="quota-line"><strong>${q.ok?'剩余 '+esc(q.remaining_text||'未知'):'暂无额度信息'}</strong><span>${q.ok?esc(q.percent_remaining)+'%':''}</span></div><div class="quota-bar"><div class="quota-fill ${quotaLevel(pct)}" style="width:${pct}%"></div></div><div class="quota-detail">${q.ok?`已用 ${esc(q.used_text||'未知')} / ${esc(q.total_text||'未知')} · 到期 ${esc(q.expire_text||'未知')}`:'刷新后读取订阅额度'}</div></div>
   <div class="stats"><div class="stat"><span>刷新频率</span><strong>${esc(intervalText(p.refresh_interval_seconds))}</strong></div><div class="stat"><span>最近刷新</span><strong>${esc(p.last_refresh_at||'尚未刷新')}</strong></div><div class="stat"><span>${on?'运行状态':'校验状态'}</span><strong>${p.last_refresh_at?(on?'验证通过':'配置可用'):'等待刷新'}</strong></div><div class="stat"><span>${on?'配置版本':'地区规则'}</span><strong>${on?`${available} 个可用节点`:'独立保存'}</strong></div></div>
   <div class="actions"><button class="secondary" onclick="refreshProfile('${esc(p.id)}',this)">刷新</button><button class="secondary" onclick="openEditor('${esc(p.id)}')">编辑</button><button class="danger" ${on?'disabled title="当前激活订阅不能删除"':''} onclick="deleteProfile('${esc(p.id)}')">删除</button>${on?'<button disabled>已激活</button>':`<button onclick="activateProfile('${esc(p.id)}',this)">激活</button>`}</div>
  </article>`}
