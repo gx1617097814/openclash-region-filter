@@ -90,6 +90,17 @@ def selector_status(config: dict[str, Any]) -> dict[str, Any]:
     preferred = preferred or (max(selectors, key=lambda item: len(item["all"])) if selectors else None)
     if not preferred:
         raise RuntimeError("没有找到可手动选择节点的策略组")
+    selected = preferred.get("now")
+    resolved = selected
+    visited: set[str] = set()
+    while isinstance(resolved, str) and resolved not in visited:
+        visited.add(resolved)
+        child = proxies.get(resolved)
+        if not isinstance(child, dict) or not child.get("now"):
+            break
+        resolved = child["now"]
+    preferred["selected"] = selected
+    preferred["now"] = resolved
     return preferred
 
 

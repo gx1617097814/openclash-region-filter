@@ -40,6 +40,7 @@ class AppState:
         self.lock = threading.RLock()
         self.operation_lock = threading.Lock()
         self.last_result: dict[str, Any] | None = None
+        self.profile_results: dict[str, dict[str, Any]] = {}
         self.last_subscription_result: dict[str, Any] | None = None
         self.last_install_result: dict[str, Any] | None = None
         self.stop_event = threading.Event()
@@ -96,7 +97,7 @@ class AppState:
             "config": {"active_subscription_id": config["active_subscription_id"], "subscriptions": profiles},
             "scans": scans,
             "selected_node": selected,
-            "last_result": sanitize_result_payload(self.last_result),
+            "last_result": sanitize_result_payload(self.profile_results.get(config["active_subscription_id"])),
             "last_subscription_result": sanitize_result_payload(self.last_subscription_result),
             "last_install_result": sanitize_result_payload(self.last_install_result),
         }
@@ -167,12 +168,14 @@ class AppState:
             if not refresh_payload.get("ok"):
                 result = {"ok": False, "stage": "refresh", "error": refresh_payload.get("error"), "refresh": refresh_payload}
                 self.last_result = result
+                self.profile_results[profile_id] = result
                 return result
             with self.lock:
                 self._save(config)
             if not (active if install is None else install):
                 result = {"ok": True, "installed": False, "message": "订阅缓存已更新", "refresh": refresh_payload}
                 self.last_result = result
+                self.profile_results[profile_id] = result
                 return result
             return self._install_candidate(config, profile_id, candidate, switching=False)
 
@@ -182,7 +185,10 @@ class AppState:
         install = install_filtered_config(candidate)
         self.last_install_result = install.to_dict()
         if not install.ok:
-            return {"ok": False, "stage": "install", "error": install.error}
+            result = {"ok": False, "stage": "install", "error": install.error}
+            self.last_result = result
+            self.profile_results[profile_id] = result
+            return result
         reload_result = self.reload_openclash(config) if install.changed else {"ok": True, "skipped": True}
         if install.changed and reload_result.get("ok"):
             time.sleep(max(1, int(config.get("automation", {}).get("settle_seconds", 3))))
@@ -196,6 +202,7 @@ class AppState:
                 self.reload_openclash(config)
             result = {"ok": False, "stage": "verify", "error": "候选配置验证失败，已恢复原配置", "reload": reload_result, "verification": verification}
             self.last_result = result
+            self.profile_results[profile_id] = result
             return result
         if switching:
             with self.lock:
@@ -204,6 +211,7 @@ class AppState:
         refresh = self.last_subscription_result or {}
         result = {**(refresh.get("filter_result") or {}), "ok": True, "changed": install.changed, "reload": reload_result, "verification": verification, "verified": True, "switched": switching}
         self.last_result = result
+        self.profile_results[profile_id] = result
         return result
 
     def activate_profile(self, profile_id: str) -> dict[str, Any]:

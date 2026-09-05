@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -13,8 +14,9 @@ sys.path.insert(0, str(ROOT))
 
 from app.defaults import DEFAULT_CONFIG
 from app.filtering import LATENCY_GROUP_NAME, filter_config_data, scan_regions
-from app.config import merge_regions
+from app.config import ConfigStore, merge_regions
 from app.service import AppState, INDEX_HTML
+from app.mihomo import selector_status
 from app.profiles import get_profile, normalize_profiles, runtime_config
 from app.subscription import install_filtered_config, parse_subscription_userinfo, refresh_subscription
 
@@ -272,6 +274,45 @@ class FilteringTest(unittest.TestCase):
         self.assertNotIn("刷新文件", INDEX_HTML)
         self.assertNotIn("立即过滤并应用", INDEX_HTML)
         self.assertNotIn("后续无需手动操作", INDEX_HTML)
+
+    def test_selector_status_resolves_nested_group_to_real_node(self) -> None:
+        payload = {
+            "proxies": {
+                "Proxy": {"type": "Selector", "all": ["Auto", "SG-A"], "now": "Auto"},
+                "Auto": {"type": "URLTest", "all": ["SG-A"], "now": "SG-A"},
+                "SG-A": {"type": "Shadowsocks"},
+            }
+        }
+        with patch("app.mihomo.api_request", return_value=payload):
+            status = selector_status(copy.deepcopy(DEFAULT_CONFIG))
+
+        self.assertEqual(status["selected"], "Auto")
+        self.assertEqual(status["now"], "SG-A")
+
+    def test_dashboard_uses_requested_latency_bands_and_fastest_summary(self) -> None:
+        self.assertIn("delay<=200?'good':delay<=600?'mid':'bad'", INDEX_HTML)
+        self.assertIn("最快 ${esc(fastest.name)}", INDEX_HTML)
+
+    def test_state_returns_result_for_active_profile_only(self) -> None:
+        config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+        active = get_profile(config)
+        standby = copy.deepcopy(active)
+        standby["id"] = "standby"
+        standby["name"] = "Standby"
+        config["subscriptions"].append(standby)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = AppState(ConfigStore(Path(tmpdir) / "config.json"))
+            state._save(config)
+            state.last_result = {"profile": "standby"}
+            state.profile_results = {
+                active["id"]: {"profile": "active"},
+                standby["id"]: {"profile": "standby"},
+            }
+            with patch("app.service.selector_status", side_effect=RuntimeError("offline")):
+                payload = state.state_payload()
+
+        self.assertEqual(payload["last_result"], {"profile": "active"})
 
 
 if __name__ == "__main__":
