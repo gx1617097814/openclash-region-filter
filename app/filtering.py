@@ -105,6 +105,7 @@ BUILTIN_GROUP_ITEMS = {
     "REJECT-DROP",
     "PASS",
 }
+LATENCY_GROUP_NAME = "OCFilter 全部节点测速"
 
 
 def flag_country_code(flag: str) -> str | None:
@@ -381,6 +382,20 @@ def filter_config_data(data: dict[str, Any], config: dict[str, Any]) -> tuple[di
     group_summaries: list[dict[str, Any]] = []
     groups = data.get("proxy-groups") or []
     group_names = {str(group.get("name")) for group in groups if isinstance(group, dict) and group.get("name")}
+    primary_group_name = next(
+        (name for name in ("🚀 节点选择", "Proxy", "PROXY") if name in group_names),
+        None,
+    )
+    if primary_group_name is None and isinstance(groups, list):
+        primary_group_name = next(
+            (
+                str(group.get("name")) for group in groups
+                if isinstance(group, dict)
+                and group.get("name")
+                and str(group.get("type", "")).lower() == "select"
+            ),
+            None,
+        )
 
     if isinstance(groups, list):
         for group in groups:
@@ -418,7 +433,7 @@ def filter_config_data(data: dict[str, Any], config: dict[str, Any]) -> tuple[di
                 warnings.append(f"Group {group_name!r} became empty; populated it with desired nodes")
                 new_items = desired_names[:]
 
-            if group_name in {"🚀 节点选择", "Proxy", "PROXY"}:
+            if group_name == primary_group_name:
                 auto_refs = [item for item in new_items if item in group_names]
                 leaf_refs = [item for item in desired_names if item not in auto_refs]
                 new_items = auto_refs + leaf_refs
@@ -437,7 +452,23 @@ def filter_config_data(data: dict[str, Any], config: dict[str, Any]) -> tuple[di
         warnings.append("YAML field 'proxy-groups' is not a list; group references were not rewritten")
 
     filtered = dict(data)
-    filtered["proxies"] = kept_proxies
+    if config["filter"].get("keep_disabled_proxies_for_latency"):
+        filtered["proxies"] = [proxy for proxy in proxies if isinstance(proxy, dict) and proxy.get("name")]
+        filtered_groups = [
+            group for group in groups
+            if not isinstance(group, dict) or group.get("name") != LATENCY_GROUP_NAME
+        ]
+        filtered_groups.append(
+            {
+                "name": LATENCY_GROUP_NAME,
+                "type": "select",
+                "hidden": True,
+                "proxies": sorted(original_proxy_names),
+            }
+        )
+        filtered["proxy-groups"] = filtered_groups
+    else:
+        filtered["proxies"] = kept_proxies
 
     kept_nodes = desired_names
     removed_nodes = [info.name for info in node_infos if not info.kept]
@@ -591,6 +622,41 @@ def verify_running_state(config: dict[str, Any]) -> dict[str, Any]:
     proxies = payload.get("proxies", {}) if isinstance(payload, dict) else {}
     leaf_names = []
     bad_nodes = []
+
+    if config["filter"].get("keep_disabled_proxies_for_latency"):
+        selector = None
+        for preferred in ("🚀 节点选择", "Proxy", "PROXY"):
+            item = proxies.get(preferred)
+            if isinstance(item, dict) and isinstance(item.get("all"), list):
+                selector = item
+                break
+        if selector is None:
+            selector = next(
+                (
+                    item for item in proxies.values()
+                    if isinstance(item, dict)
+                    and str(item.get("type", "")).lower() == "selector"
+                    and isinstance(item.get("all"), list)
+                ),
+                None,
+            )
+        if selector is not None:
+            leaf_names = [
+                str(name) for name in selector.get("all", [])
+                if name in proxies
+                and isinstance(proxies[name], dict)
+                and not isinstance(proxies[name].get("all"), list)
+            ]
+            bad_nodes = [
+                name for name in leaf_names
+                if not matcher.matches_desired_name(name, enabled_regions, excluded_regions, allow_unknown)
+            ]
+            return {
+                "ok": True,
+                "leaf_count": len(leaf_names),
+                "leaf_names": leaf_names,
+                "bad_nodes": bad_nodes,
+            }
 
     for name, item in proxies.items():
         if not isinstance(item, dict):

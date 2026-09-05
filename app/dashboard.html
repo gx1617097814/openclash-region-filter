@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenClash 地区过滤</title>
+  <style>
+    :root { color-scheme: light; --ink:#172033; --muted:#69778b; --line:#dce3ea; --soft:#f5f7fa; --teal:#087f75; --green:#159447; --blue:#2563eb; --red:#c53b32; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f6f8fa; color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    header { height:62px; padding:0 24px; background:#fff; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+    h1 { margin:0; font-size:20px; } h2 { margin:0; font-size:17px; } h3 { margin:0; font-size:15px; }
+    main { max-width:1440px; margin:auto; padding:20px 24px 36px; }
+    section { background:#fff; border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
+    .head { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:14px; }
+    .hint,.meta { color:var(--muted); font-size:12px; line-height:1.45; }
+    button { min-height:36px; border:1px solid var(--teal); border-radius:6px; padding:7px 11px; color:#fff; background:var(--teal); cursor:pointer; font-size:13px; white-space:nowrap; }
+    button.secondary { color:var(--teal); background:#fff; } button.danger { color:var(--red); background:#fff; border-color:#efc5c1; }
+    button:disabled { opacity:.5; cursor:wait; }
+    input,select { width:100%; height:38px; border:1px solid var(--line); border-radius:6px; padding:7px 9px; background:#fff; color:var(--ink); font-size:13px; }
+    .pill { display:inline-flex; align-items:center; min-height:25px; padding:3px 8px; border-radius:999px; border:1px solid var(--line); font-size:12px; color:var(--muted); }
+    .pill.live { color:#087443; border-color:#b9ddc8; background:#f1fbf5; }
+    .subscriptions { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr)); gap:12px; }
+    .sub-card { border:1px solid var(--line); border-radius:8px; padding:14px; display:grid; gap:12px; min-width:0; }
+    .sub-card.active { border-color:#70aaa4; box-shadow:inset 3px 0 var(--teal); }
+    .sub-title { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+    .sub-title h3 { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .url { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; }
+    .stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 14px; }
+    .stat { min-width:0; } .stat span { display:block; font-size:11px; color:var(--muted); } .stat strong { font-size:13px; overflow-wrap:anywhere; }
+    .quota-bar { height:7px; background:#e6ebf0; border-radius:99px; overflow:hidden; } .quota-fill { height:100%; background:var(--green); }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(300px,.75fr); gap:16px; align-items:start; }
+    .regions { display:grid; gap:10px; }
+    .region { border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    .region-head { min-height:58px; padding:10px 12px; display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:12px; align-items:center; }
+    .region-title strong { display:block; } .region-title span { color:var(--muted); font-size:12px; }
+    .toggle { width:44px; height:24px; min-height:24px; padding:2px; border:0; border-radius:99px; background:#cbd5e1; display:flex; }
+    .toggle::after { content:""; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px #0003; }
+    .toggle.on { background:var(--green); justify-content:flex-end; }
+    .expand { color:var(--muted); background:#fff; border-color:var(--line); width:34px; padding:4px; }
+    .node-list { display:none; border-top:1px solid var(--line); background:#fafbfc; }
+    .region.open .node-list { display:block; }
+    .node { min-height:43px; padding:7px 12px; border-bottom:1px solid #e9edf1; display:grid; grid-template-columns:minmax(0,1fr) 70px 66px; gap:10px; align-items:center; }
+    .node:last-child { border-bottom:0; } .node-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+    .latency { font-size:12px; color:var(--muted); text-align:right; } .latency.good { color:#087443; } .latency.mid { color:#b26a00; } .latency.bad { color:var(--red); }
+    .node button { min-height:30px; padding:4px 8px; } .node button.current { border-color:#b9ddc8; background:#f1fbf5; color:#087443; }
+    .side { display:grid; gap:16px; } .side section { margin:0; }
+    .selected { padding:12px; border:1px solid var(--line); background:var(--soft); border-radius:8px; overflow-wrap:anywhere; }
+    .result { margin:0; min-height:180px; max-height:360px; overflow:auto; white-space:pre-wrap; word-break:break-word; padding:12px; border-radius:8px; background:#101827; color:#dce7f7; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    dialog { width:min(560px,calc(100% - 30px)); border:1px solid var(--line); border-radius:8px; padding:0; box-shadow:0 18px 50px #0003; }
+    dialog::backdrop { background:#11182766; } .dialog-body { padding:18px; display:grid; gap:14px; }
+    .field { display:grid; gap:5px; } .field label { font-size:12px; color:var(--muted); }
+    #feedback { position:fixed; right:22px; top:76px; z-index:20; width:min(340px,calc(100% - 44px)); }
+    .notice { background:#fff; border:1px solid var(--line); border-left:4px solid var(--blue); border-radius:6px; padding:10px 12px; box-shadow:0 8px 24px #0f172a24; font-size:13px; }
+    .notice.ok { border-left-color:var(--green); } .notice.bad { border-left-color:var(--red); }
+    @media(max-width:880px) { main{padding:14px}.workspace{grid-template-columns:1fr}.region-head{grid-template-columns:minmax(0,1fr) auto auto}.node{grid-template-columns:minmax(0,1fr) 58px 58px} }
+  </style>
+</head>
+<body>
+<header><h1>OpenClash 地区过滤</h1><span class="pill live">自动运行中</span></header>
+<main>
+  <section>
+    <div class="head"><div><h2>订阅配置</h2><div class="hint">每个订阅独立保存地区、刷新频率、额度和测速记录，同一时间只激活一个。</div></div><button onclick="openEditor()">添加订阅</button></div>
+    <div id="subscriptions" class="subscriptions"></div>
+  </section>
+  <div class="workspace">
+    <section>
+      <div class="head"><div><h2>地区与节点</h2><div class="hint">展开地区查看延迟并手动选择节点。测速不会自动切换。</div></div><div class="actions"><button class="secondary" id="testBtn" onclick="testAll(this)">全部测速</button><button id="applyBtn" onclick="applyRegions(this)">保存并应用</button></div></div>
+      <div id="regions" class="regions"></div>
+    </section>
+    <aside class="side">
+      <section><div class="head"><h2>当前节点</h2><span id="latencyTime" class="meta"></span></div><div id="selected" class="selected">读取中</div></section>
+      <section><div class="head"><h2>最近结果</h2></div><pre id="result" class="result">暂无运行结果</pre></section>
+    </aside>
+  </div>
+</main>
+<div id="feedback"></div>
+<dialog id="editor"><form method="dialog" class="dialog-body" onsubmit="saveProfile(event)">
+  <div class="head"><h2 id="editorTitle">添加订阅</h2><button type="button" class="secondary" onclick="$('editor').close()">关闭</button></div>
+  <input id="editId" type="hidden">
+  <div class="field"><label for="editName">订阅名称</label><input id="editName" required maxlength="80"></div>
+  <div class="field"><label for="editUrl">订阅地址</label><input id="editUrl" type="url" required></div>
+  <div class="field"><label for="editRefresh">自动刷新</label><select id="editRefresh"><option value="1800">每 30 分钟</option><option value="3600">每 1 小时</option><option value="7200">每 2 小时</option><option value="21600">每 6 小时</option><option value="43200">每 12 小时</option><option value="86400">每天</option></select></div>
+  <div class="field"><label for="editLatency">自动测速</label><select id="editLatency"><option value="0">关闭</option><option value="7200">每 2 小时</option><option value="14400">每 4 小时</option><option value="28800">每 8 小时</option><option value="43200">每 12 小时</option></select></div>
+  <div class="actions"><button type="submit">保存订阅</button><button type="button" id="deleteBtn" class="danger" onclick="deleteProfile()">删除</button></div>
+</form></dialog>
+<script>
+let state=null, noticeTimer=null;
+const $=id=>document.getElementById(id);
+const esc=value=>String(value??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+function notice(message,type="info"){ $("feedback").innerHTML=`<div class="notice ${type}">${esc(message)}</div>`; clearTimeout(noticeTimer); noticeTimer=setTimeout(()=>$("feedback").innerHTML="",3500); }
+async function api(path,body){ const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})}); const data=await response.json(); if(!response.ok||data.ok===false) throw new Error(data.error||"操作失败"); return data; }
+async function busy(button,text,task){ const old=button?.textContent; if(button){button.disabled=true;button.textContent=text} try{const value=await task();notice("操作完成","ok");return value}catch(error){notice(error.message,"bad");throw error}finally{if(button){button.disabled=false;button.textContent=old}} }
+function active(){return state.config.subscriptions.find(p=>p.id===state.config.active_subscription_id)}
+function intervalText(seconds){if(!seconds)return"关闭";if(seconds%86400===0)return`每 ${seconds/86400} 天`;if(seconds%3600===0)return`每 ${seconds/3600} 小时`;return`每 ${seconds/60} 分钟`}
+function quotaText(q){return q?.ok?`${q.remaining_text||"未知"} / ${q.total_text||"未知"}`:"暂无额度信息"}
+function subscriptionCard(p){const on=p.id===state.config.active_subscription_id,q=p.quota||{},pct=Math.max(0,Math.min(100,Number(q.percent_remaining||0)));return `<article class="sub-card ${on?'active':''}">
+  <div class="sub-title"><div><h3>${esc(p.name)}</h3><div class="meta">${on?'当前激活配置':'待机配置'}</div></div><span class="pill ${on?'live':''}">${on?'使用中':'未激活'}</span></div>
+  <div class="url" title="${esc(p.source_url)}">${esc(p.source_url||'尚未填写订阅地址')}</div>
+  <div class="quota-bar"><div class="quota-fill" style="width:${pct}%"></div></div>
+  <div class="stats"><div class="stat"><span>订阅额度</span><strong>${esc(quotaText(q))}</strong></div><div class="stat"><span>到期时间</span><strong>${esc(q.expire_text||'未知')}</strong></div><div class="stat"><span>自动刷新</span><strong>${esc(intervalText(p.refresh_interval_seconds))}</strong></div><div class="stat"><span>最近刷新</span><strong>${esc(p.last_refresh_at||'尚未刷新')}</strong></div></div>
+  <div class="actions"><button class="secondary" onclick="refreshProfile('${esc(p.id)}',this)">刷新</button><button class="secondary" onclick="openEditor('${esc(p.id)}')">编辑</button>${on?'':`<button onclick="activateProfile('${esc(p.id)}',this)">激活</button>`}</div>
+ </article>`}
+function isEnabled(p,region){return (p.filter.enabled_regions.includes(region.id)||(p.filter.allow_unknown&&region.default_enabled))&&!p.filter.excluded_regions.includes(region.id)}
+function latencyClass(delay){return delay==null?'bad':delay<180?'good':delay<500?'mid':'bad'}
+function regionRow(region){const p=active(),scan=state.scans[p.id]||{},nodes=(scan.nodes||[]).filter(n=>n.region_id===region.id),enabled=isEnabled(p,region),lat=p.latency?.results||{};return `<div class="region" data-region="${esc(region.id)}"><div class="region-head"><div class="region-title"><strong>${esc(region.label)}</strong><span>${nodes.length} 个节点</span></div><button class="toggle ${enabled?'on':''}" data-enabled="${enabled}" onclick="toggleRegion(this)" aria-label="切换${esc(region.label)}"></button><button class="expand" onclick="this.closest('.region').classList.toggle('open')" title="展开节点">⌄</button></div><div class="node-list">${nodes.map(n=>nodeRow(n.name,enabled,lat[n.name])).join('')}</div></div>`}
+function nodeRow(name,enabled,delay){const current=name===state.selected_node;return `<div class="node"><span class="node-name" title="${esc(name)}">${esc(name)}</span><span class="latency ${latencyClass(delay)}">${delay==null?'超时/未测':`${delay} ms`}</span><button class="secondary ${current?'current':''}" data-node="${esc(name)}" ${!enabled?'disabled':''} onclick="chooseNode(this)">${current?'使用中':'选择'}</button></div>`}
+function render(){const p=active();$("subscriptions").innerHTML=state.config.subscriptions.map(subscriptionCard).join('');const scan=state.scans[p.id]||{},regions=(scan.regions||p.regions||[]).filter(r=>(scan.region_counts?.[r.id]||0)>0);$("regions").innerHTML=regions.length?regions.map(regionRow).join(''):'<div class="hint">请先刷新当前订阅以读取地区和节点。</div>';$("selected").textContent=state.selected_node||'尚未读取当前节点';$("latencyTime").textContent=p.latency?.last_test_at?`测速：${p.latency.last_test_at}`:'尚未测速';$("result").textContent=JSON.stringify(state.last_result||{},null,2)||'暂无运行结果';}
+async function refresh(){state=await fetch('/api/state').then(r=>r.json());render()}
+function openEditor(id=''){const p=state.config.subscriptions.find(x=>x.id===id);$("editorTitle").textContent=p?'编辑订阅':'添加订阅';$("editId").value=p?.id||'';$("editName").value=p?.name||'';$("editUrl").value=p?.source_url||'';$("editRefresh").value=String(p?.refresh_interval_seconds||3600);$("editLatency").value=String(p?.latency?.interval_seconds??14400);$("deleteBtn").style.display=p&&p.id!==state.config.active_subscription_id?'inline-block':'none';$("editor").showModal()}
+async function saveProfile(event){event.preventDefault();await api('/api/subscriptions/save',{id:$("editId").value,name:$("editName").value,source_url:$("editUrl").value,refresh_interval_seconds:Number($("editRefresh").value),latency_interval_seconds:Number($("editLatency").value)});$("editor").close();notice('订阅已保存','ok');await refresh()}
+async function deleteProfile(){if(!confirm('确定删除这个订阅吗？'))return;await api('/api/subscriptions/delete',{id:$("editId").value});$("editor").close();await refresh()}
+async function refreshProfile(id,button){await busy(button,'刷新中',()=>api('/api/subscriptions/refresh',{id}));await refresh()}
+async function activateProfile(id,button){if(!confirm('将先验证候选配置，成功后再切换。确认激活？'))return;await busy(button,'安全切换中',()=>api('/api/subscriptions/activate',{id}));await refresh()}
+function toggleRegion(button){button.classList.toggle('on');button.dataset.enabled=button.classList.contains('on');}
+async function applyRegions(button){const p=active(),enabled=[],excluded=[];document.querySelectorAll('.region').forEach(row=>(row.querySelector('.toggle').classList.contains('on')?enabled:excluded).push(row.dataset.region));await busy(button,'应用中',()=>api('/api/regions/apply',{id:p.id,enabled_regions:enabled,excluded_regions:excluded}));await refresh()}
+async function testAll(button){const p=active();await busy(button,'测速中',()=>api('/api/latency/test',{id:p.id}));await refresh()}
+async function chooseNode(button){await busy(button,'切换中',()=>api('/api/nodes/select',{id:active().id,name:button.dataset.node}));await refresh()}
+refresh().catch(error=>notice(error.message,'bad'));setInterval(()=>refresh().catch(()=>{}),60000);
+</script>
+</body>
+</html>

@@ -35,8 +35,10 @@ But the current operational preference is to generate a final YAML and let OpenC
 
 Region changes must be a two-step workflow at most:
 
-1. Toggle regions in the "地区规则" area.
-2. Click "保存并应用".
+1. Manage source URLs and schedules through subscription cards.
+2. Only one subscription is active at a time; inactive refreshes never reload OpenClash.
+3. Toggle regions in the active subscription and click "保存并应用".
+4. Use "全部测速" for latency only, then manually choose a node.
 
 "保存并应用" must perform the full required chain:
 
@@ -58,7 +60,8 @@ The UI intentionally exposes no separate refresh, reload, install, or verificati
 
 ## Current UI Notes
 
-- The only normal command button is "保存并应用" beside the source subscription input.
+- Subscription refresh, activation, region apply, latency test, and node selection are separate commands with distinct scopes.
+- Never activate a newly added subscription during deployment or migration.
 - Button feedback is shown as a floating notice and must not reserve blank space beside the buttons.
 - Only regions with at least one node in the current source subscription are displayed.
 - The lower dashboard area uses a 50/50 split between subscription quota and the latest result on desktop widths.

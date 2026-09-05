@@ -28,6 +28,7 @@ DEFAULT_CONFIG = {
     },
     "filter": {
         "allow_unknown": True,
+        "keep_disabled_proxies_for_latency": True,
         "enabled_regions": [
             "singapore",
             "united_states",
@@ -67,6 +68,12 @@ DEFAULT_CONFIG = {
                 "芝加哥",
                 "硅谷",
             ],
+        },
+        {
+            "id": "taiwan",
+            "label": "台湾",
+            "default_enabled": True,
+            "patterns": ["🇹🇼", "台湾", "台灣", "台北", "Taiwan", "\\bTW\\b"],
         },
         {
             "id": "japan",
@@ -117,4 +124,6 @@ DEFAULT_CONFIG = {
             ],
         },
     ],
+    "active_subscription_id": "",
+    "subscriptions": [],
 }

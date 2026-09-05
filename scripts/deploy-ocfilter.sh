@@ -62,7 +62,15 @@ docker ps --filter "name=$RUN" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports
 echo "== logs =="
 docker logs --tail 30 "$RUN" || true
 echo "== state =="
-curl -fsS "http://127.0.0.1:$PORT/api/state" \
-  | sed 's/"dashboard_secret": "[^"]*"/"dashboard_secret": "***"/g' \
-  | sed 's/"source_url": "[^"]*"/"source_url": "***"/g' \
-  | sed 's#"config_path": "https\?://[^"]*"#"config_path": "***"#g' || true
+docker exec "$RUN" python3 -c '
+import json, urllib.request
+data = json.load(urllib.request.urlopen("http://127.0.0.1:'"$PORT"'/api/state", timeout=10))
+active = data["config"]["active_subscription_id"]
+profiles = data["config"]["subscriptions"]
+profile = next(item for item in profiles if item["id"] == active)
+scan = data["scans"].get(active, {})
+print("profile_count=%d" % len(profiles))
+print("active_profile=%s" % profile.get("name", ""))
+print("source_configured=%s" % bool(profile.get("source_url")))
+print("node_count=%s" % scan.get("node_count", 0))
+' || true
