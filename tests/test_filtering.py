@@ -335,6 +335,8 @@ class FilteringTest(unittest.TestCase):
         self.assertNotIn("if(!confirm(", INDEX_HTML)
         self.assertIn('id="operation"', INDEX_HTML)
         self.assertIn('id="confirmDialog"', INDEX_HTML)
+        self.assertIn("启用范围", INDEX_HTML)
+        self.assertNotIn("保留 ${retained} 个节点", INDEX_HTML)
 
     def test_selector_status_resolves_nested_group_to_real_node(self) -> None:
         payload = {
@@ -379,6 +381,29 @@ class FilteringTest(unittest.TestCase):
         self.assertEqual(payload["last_result"], {"profile": "active"})
         status.assert_not_called()
 
+    def test_state_builds_recent_result_from_existing_cache(self) -> None:
+        config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+        active = get_profile(config)
+        active["last_result"] = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            store.save(config)
+            state = AppState(store)
+            state.scan_cache[active["id"]] = {
+                "node_count": 2,
+                "regions": active["regions"],
+                "nodes": [
+                    {"name": "SG-A", "region_id": "singapore"},
+                    {"name": "HK-A", "region_id": "hong_kong"},
+                ],
+            }
+            payload = state.state_payload()
+
+        self.assertTrue(payload["last_result"]["cached"])
+        self.assertEqual(payload["last_result"]["kept_nodes"], ["SG-A"])
+        self.assertEqual(payload["last_result"]["node_count"], 2)
+
     def test_switch_restores_remembered_reachable_node(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
@@ -405,6 +430,32 @@ class FilteringTest(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual(result["selection"]["reason"], "restored")
             self.assertEqual(get_profile(state.load_config())["id"], "standby")
+            select.assert_called_once_with(candidate, "SG-B")
+
+    def test_new_subscription_selects_lowest_latency_reachable_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+            config["subscription"]["output_config_path"] = str(Path(tmpdir) / "output.yaml")
+            target = new_profile("Standby")
+            target["id"] = "standby"
+            config["subscriptions"].append(target)
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            store.save(config)
+            state = AppState(store)
+            candidate = runtime_config(state.load_config(), get_profile(state.load_config(), "standby"))
+            state.last_subscription_result = {"filter_result": {"kept_nodes": ["SG-A", "SG-B", "SG-C"]}}
+            install = InstallResult(True, True, "cache", str(Path(tmpdir) / "output.yaml"), "now")
+
+            with patch("app.service.install_filtered_config", return_value=install), \
+                 patch.object(state, "reload_openclash", return_value={"ok": True}), \
+                 patch("app.service.time.sleep"), \
+                 patch("app.service.test_latencies", return_value={"ok": True, "results": {"SG-A": 180, "SG-B": 75, "SG-C": 130}}), \
+                 patch("app.service.mihomo_select_node", return_value={"ok": True}) as select, \
+                 patch("app.service.verify_running_state", return_value={"ok": True, "bad_nodes": []}):
+                result = state._install_candidate(state.load_config(), "standby", candidate, switching=True)
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["selection"]["reason"], "lowest_latency")
             select.assert_called_once_with(candidate, "SG-B")
 
     def test_switch_rolls_back_when_all_nodes_are_unreachable(self) -> None:

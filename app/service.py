@@ -102,6 +102,35 @@ class AppState:
             scan = {"error": str(exc), "node_count": 0, "region_counts": {}, "nodes": [], "regions": profile.get("regions", [])}
         self.scan_cache[profile["id"]] = scan
 
+    @staticmethod
+    def _cached_result(profile: dict[str, Any], scan: dict[str, Any]) -> dict[str, Any] | None:
+        if not scan.get("node_count"):
+            return None
+        profile_filter = profile.get("filter", {})
+        enabled = set(map(str, profile_filter.get("enabled_regions", [])))
+        excluded = set(map(str, profile_filter.get("excluded_regions", [])))
+        if profile_filter.get("allow_unknown"):
+            enabled.update(
+                str(region.get("id"))
+                for region in scan.get("regions", [])
+                if region.get("default_enabled")
+            )
+        enabled -= excluded
+        kept_nodes = [
+            str(node.get("name"))
+            for node in scan.get("nodes", [])
+            if str(node.get("region_id")) in enabled
+        ]
+        return {
+            "ok": True,
+            "cached": True,
+            "stage": "cache",
+            "message": "已加载历史订阅缓存；下次刷新后将记录完整运行结果",
+            "generated_at": profile.get("last_refresh_at"),
+            "kept_nodes": kept_nodes,
+            "node_count": int(scan.get("node_count", 0) or 0),
+        }
+
     def _operation_progress(self, stage: str, message: str, progress: int) -> None:
         with self.lock:
             self.operation_status.update({"stage": stage, "message": message, "progress": progress})
@@ -205,21 +234,24 @@ class AppState:
     def state_payload(self) -> dict[str, Any]:
         config = self.load_config()
         profiles = copy.deepcopy(config["subscriptions"])
-        for profile in profiles:
-            if isinstance(profile.get("quota"), dict):
-                profile["quota"].pop("raw", None)
         with self.lock:
             scans = copy.deepcopy(self.scan_cache)
             runtime_status = copy.deepcopy(self.runtime_status)
             operation = copy.deepcopy(self.operation_status)
+        for profile in profiles:
+            if isinstance(profile.get("quota"), dict):
+                profile["quota"].pop("raw", None)
+            if not isinstance(profile.get("last_result"), dict):
+                profile["last_result"] = self._cached_result(profile, scans.get(profile["id"], {}))
         selected = str(runtime_status.get("selected_node") or get_profile(config).get("selected_node") or "")
+        active_profile = next(profile for profile in profiles if profile["id"] == config["active_subscription_id"])
         return {
             "config": {"active_subscription_id": config["active_subscription_id"], "subscriptions": profiles},
             "scans": scans,
             "selected_node": selected,
             "runtime_status": runtime_status,
             "operation": operation,
-            "last_result": sanitize_result_payload(get_profile(config).get("last_result")),
+            "last_result": sanitize_result_payload(active_profile.get("last_result")),
             "last_subscription_result": sanitize_result_payload(self.last_subscription_result),
             "last_install_result": sanitize_result_payload(self.last_install_result),
         }
@@ -386,12 +418,13 @@ class AppState:
             except RuntimeError as exc:
                 latency_result = {"ok": False, "results": {}, "error": str(exc)}
             reachable = {
-                name for name, delay in (latency_result.get("results") or {}).items()
+                name: delay for name, delay in (latency_result.get("results") or {}).items()
                 if isinstance(delay, (int, float)) and delay > 0
             }
             if selected not in reachable:
-                selected = next((name for name in kept_nodes if name in reachable), "")
-                selection_reason = "first_reachable"
+                candidates = [name for name in kept_nodes if name in reachable]
+                selected = min(candidates, key=lambda name: reachable[name], default="")
+                selection_reason = "lowest_latency"
             if not selected:
                 return self._rollback_candidate(
                     config,
