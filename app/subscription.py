@@ -240,6 +240,51 @@ def refresh_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], Subscr
         )
 
 
+def refilter_cached_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], SubscriptionResult]:
+    """Rebuild the filtered cache from the last downloaded YAML without network I/O."""
+    subscription = config.get("subscription", {})
+    source_url = str(subscription.get("source_url", "")).strip()
+    cache_path = Path(str(subscription.get("cache_path") or "/data/subscription-filtered.yaml"))
+    source_path = Path(str(subscription.get("last_source_path") or "/data/subscription-source.yaml"))
+    try:
+        source_text = source_path.read_text(encoding="utf-8")
+        data = load_yaml_text(source_text)
+        prepared_config = config_with_dynamic_regions(data, config)
+        before_region_ids = {str(region.get("id")) for region in config.get("regions", [])}
+        after_region_ids = {str(region.get("id")) for region in prepared_config.get("regions", [])}
+        filtered, filter_result = filter_config_data(data, prepared_config)
+        rendered = dump_yaml(filtered)
+        old_rendered = cache_path.read_text(encoding="utf-8") if cache_path.exists() else None
+        atomic_write(cache_path, rendered)
+
+        updated_config = dict(config)
+        updated_config["regions"] = prepared_config["regions"]
+        filter_payload = filter_result.to_dict()
+        filter_payload["config_path"] = str(source_path)
+        return updated_config, SubscriptionResult(
+            ok=True,
+            changed=old_rendered != rendered,
+            source_url=source_url,
+            cache_path=str(cache_path),
+            generated_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+            regions_added=sorted(after_region_ids - before_region_ids),
+            filter_result=filter_payload,
+            subscription_info=None,
+        )
+    except (OSError, ValueError) as exc:
+        return config, SubscriptionResult(
+            ok=False,
+            changed=False,
+            source_url=source_url,
+            cache_path=str(cache_path),
+            generated_at=None,
+            regions_added=[],
+            filter_result=None,
+            subscription_info=None,
+            error=str(exc),
+        )
+
+
 def install_filtered_config(config: dict[str, Any]) -> InstallResult:
     subscription = config.get("subscription", {})
     cache_path = Path(str(subscription.get("cache_path") or "/data/subscription-filtered.yaml"))

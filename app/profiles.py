@@ -21,6 +21,7 @@ def new_profile(name: str = "新订阅", source_url: str = "") -> dict[str, Any]
         "last_refresh_at": None,
         "last_refresh_epoch": 0,
         "last_refresh_attempt_epoch": 0,
+        "source_pending": False,
         "last_result": None,
         "filter": copy.deepcopy(DEFAULT_CONFIG["filter"]),
         "regions": copy.deepcopy(DEFAULT_CONFIG["regions"]),
@@ -80,9 +81,10 @@ def normalize_profiles(config: dict[str, Any]) -> dict[str, Any]:
             0,
             int(profile.get("last_refresh_epoch", 0) or saved_time_epoch(profile.get("last_refresh_at"))),
         )
-        profile["last_refresh_attempt_epoch"] = max(
-            profile["last_refresh_epoch"],
-            int(profile.get("last_refresh_attempt_epoch", 0) or 0),
+        profile["source_pending"] = bool(profile.get("source_pending", False))
+        saved_attempt = max(0, int(profile.get("last_refresh_attempt_epoch", 0) or 0))
+        profile["last_refresh_attempt_epoch"] = saved_attempt if profile["source_pending"] else max(
+            profile["last_refresh_epoch"], saved_attempt
         )
         profile["last_result"] = profile.get("last_result") if isinstance(profile.get("last_result"), dict) else None
         profile["filter"] = {**copy.deepcopy(DEFAULT_CONFIG["filter"]), **(profile.get("filter") or {})}

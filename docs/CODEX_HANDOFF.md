@@ -37,16 +37,16 @@ Region changes must be a two-step workflow at most:
 
 1. Manage source URLs and schedules through subscription cards.
 2. Only one subscription is active at a time; inactive refreshes never reload OpenClash.
-3. Toggle regions in the active subscription and click "保存并应用".
+3. Toggle regions in the active subscription; changes are debounced and applied automatically.
 4. Use "全部测速" for latency only, then manually choose a node.
 
-"保存并应用" must perform the full required chain:
+An automatic region save must perform the full required chain:
 
 1. Save settings.
-2. Fetch original remote YAML if a remote subscription is configured.
+2. Re-filter the last successfully downloaded source YAML from the private cache.
 3. Filter by current region settings.
 4. Write the generated OpenClash config.
-5. Restart OpenClash.
+5. Reload OpenClash only when the generated config changed.
 6. Verify running state when verification is enabled.
 
 The UI intentionally exposes no separate refresh, reload, install, or verification commands. Those operations are automatic.

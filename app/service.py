@@ -21,7 +21,7 @@ from .filtering import scan_regions, verify_running_state
 from .mihomo import select_node as mihomo_select_node
 from .mihomo import selector_status, test_latencies
 from .profiles import get_profile, new_profile, normalize_profiles, now_text, runtime_config
-from .subscription import install_filtered_config, refresh_subscription
+from .subscription import install_filtered_config, refilter_cached_subscription, refresh_subscription
 
 LOG = logging.getLogger("openclash-region-filter")
 INDEX_HTML = Path(__file__).with_name("dashboard.html").read_text(encoding="utf-8")
@@ -103,7 +103,35 @@ class AppState:
         self.scan_cache[profile["id"]] = scan
 
     @staticmethod
-    def _cached_result(profile: dict[str, Any], scan: dict[str, Any]) -> dict[str, Any] | None:
+    def _result_context(profile: dict[str, Any], scan: dict[str, Any]) -> dict[str, Any]:
+        regions = scan.get("regions", [])
+        counts = scan.get("region_counts", {})
+        enabled_ids = set(map(str, profile.get("filter", {}).get("enabled_regions", [])))
+        excluded_ids = set(map(str, profile.get("filter", {}).get("excluded_regions", [])))
+        allow_unknown = bool(profile.get("filter", {}).get("allow_unknown"))
+        region_summary = []
+        for region in regions:
+            region_id = str(region.get("id") or "")
+            count = int(counts.get(region_id, 0) or 0)
+            if not region_id or count <= 0:
+                continue
+            enabled = (
+                region_id in enabled_ids
+                or (allow_unknown and bool(region.get("default_enabled")))
+            ) and region_id not in excluded_ids
+            region_summary.append({
+                "id": region_id,
+                "label": str(region.get("label") or region_id),
+                "node_count": count,
+                "enabled": enabled,
+            })
+        return {
+            "all_nodes": [str(node.get("name")) for node in scan.get("nodes", []) if node.get("name")],
+            "region_summary": region_summary,
+        }
+
+    @classmethod
+    def _cached_result(cls, profile: dict[str, Any], scan: dict[str, Any]) -> dict[str, Any] | None:
         if not scan.get("node_count"):
             return None
         profile_filter = profile.get("filter", {})
@@ -121,6 +149,8 @@ class AppState:
             for node in scan.get("nodes", [])
             if str(node.get("region_id")) in enabled
         ]
+        all_nodes = [str(node.get("name")) for node in scan.get("nodes", []) if node.get("name")]
+        kept_set = set(kept_nodes)
         return {
             "ok": True,
             "cached": True,
@@ -128,7 +158,9 @@ class AppState:
             "message": "已加载历史订阅缓存；下次刷新后将记录完整运行结果",
             "generated_at": profile.get("last_refresh_at"),
             "kept_nodes": kept_nodes,
+            "removed_nodes": [name for name in all_nodes if name not in kept_set],
             "node_count": int(scan.get("node_count", 0) or 0),
+            **cls._result_context(profile, scan),
         }
 
     def _operation_progress(self, stage: str, message: str, progress: int) -> None:
@@ -181,6 +213,14 @@ class AppState:
                     "ok": False,
                 })
             raise
+        finally:
+            self.operation_lock.release()
+
+    def _run_quick_operation(self, worker: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        if not self.operation_lock.acquire(blocking=False):
+            return {"ok": False, "error": "已有操作正在执行，请稍候"}
+        try:
+            return worker()
         finally:
             self.operation_lock.release()
 
@@ -257,9 +297,10 @@ class AppState:
         }
 
     def save_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._run_quick_operation(lambda: self._save_profile_locked(payload))
+
+    def _save_profile_locked(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
-            if self.operation_status.get("active"):
-                return {"ok": False, "error": "后台操作进行中，暂时不能编辑订阅"}
             config = self.load_config()
             profile_id = str(payload.get("id") or "")
             if profile_id:
@@ -281,32 +322,16 @@ class AppState:
                 profile["latency"]["interval_seconds"] = max(0, int(payload["latency_interval_seconds"]))
             source_changed = previous_url != profile["source_url"]
             if source_changed:
-                candidate = runtime_config(config, profile)
-                for key in ("cache_path", "last_source_path"):
-                    try:
-                        Path(candidate["subscription"][key]).unlink()
-                    except FileNotFoundError:
-                        pass
-                profile["last_refresh_at"] = None
-                profile["last_refresh_epoch"] = 0
                 profile["last_refresh_attempt_epoch"] = 0
-                profile["last_result"] = None
-                profile["quota"] = {}
-                profile["latency"]["last_test_at"] = None
-                profile["latency"]["last_test_epoch"] = 0
-                profile["latency"]["last_test_attempt_epoch"] = 0
-                profile["latency"]["results"] = {}
-                profile["selected_node"] = ""
-                self.scan_cache[profile["id"]] = {
-                    "node_count": 0, "region_counts": {}, "nodes": [], "regions": profile["regions"]
-                }
+                profile["source_pending"] = True
             self._save(config)
             return {"ok": True, "profile_id": profile["id"]}
 
     def delete_profile(self, profile_id: str) -> dict[str, Any]:
+        return self._run_quick_operation(lambda: self._delete_profile_locked(profile_id))
+
+    def _delete_profile_locked(self, profile_id: str) -> dict[str, Any]:
         with self.lock:
-            if self.operation_status.get("active"):
-                return {"ok": False, "error": "后台操作进行中，暂时不能删除订阅"}
             config = self.load_config()
             if profile_id == config["active_subscription_id"]:
                 return {"ok": False, "error": "当前激活订阅不能删除"}
@@ -324,12 +349,74 @@ class AppState:
         def worker() -> dict[str, Any]:
             with self.lock:
                 config = self.load_config()
-                profile = get_profile(config, profile_id)
-                profile["filter"]["enabled_regions"] = list(dict.fromkeys(map(str, enabled)))
-                profile["filter"]["excluded_regions"] = list(dict.fromkeys(map(str, excluded)))
+                get_profile(config, profile_id)
+                scan = copy.deepcopy(self.scan_cache.get(profile_id, {}))
+                visible_ids = {
+                    str(region_id) for region_id, count in scan.get("region_counts", {}).items()
+                    if int(count or 0) > 0
+                }
+                requested_enabled = set(map(str, enabled)) & visible_ids
+                requested_excluded = set(map(str, excluded)) & visible_ids
+                if requested_enabled & requested_excluded:
+                    return {"ok": False, "error": "地区状态冲突，请刷新页面后重试"}
+                if requested_enabled | requested_excluded != visible_ids:
+                    return {"ok": False, "error": "地区列表已变化，请刷新页面后重试"}
+                proposed = copy.deepcopy(config)
+                profile = get_profile(proposed, profile_id)
+                saved_enabled = set(map(str, profile["filter"].get("enabled_regions", [])))
+                saved_excluded = set(map(str, profile["filter"].get("excluded_regions", [])))
+                saved_enabled -= visible_ids
+                saved_excluded -= visible_ids
+                profile["filter"]["enabled_regions"] = sorted(saved_enabled | requested_enabled)
+                profile["filter"]["excluded_regions"] = sorted(saved_excluded | requested_excluded)
                 active = profile_id == config["active_subscription_id"]
-                self._save(config)
-            return self._refresh_profile_locked(profile_id, install=active)
+                candidate = runtime_config(proposed, profile)
+                cache_path = Path(candidate["subscription"]["cache_path"])
+                previous_cache = cache_path.read_bytes() if cache_path.exists() else None
+
+            self._operation_progress("filter", "正在应用地区规则", 35)
+            updated_candidate, subscription_result = refilter_cached_subscription(candidate)
+            refresh_payload = subscription_result.to_dict()
+            self.last_subscription_result = refresh_payload
+            if not subscription_result.ok:
+                return {"ok": False, "stage": "filter", "error": subscription_result.error}
+            profile["regions"] = copy.deepcopy(updated_candidate["regions"])
+            profile["filter"] = copy.deepcopy(updated_candidate["filter"])
+
+            if active:
+                result = self._install_candidate(proposed, profile_id, updated_candidate, switching=False)
+                if not result.get("ok"):
+                    if previous_cache is None:
+                        try:
+                            cache_path.unlink()
+                        except FileNotFoundError:
+                            pass
+                    else:
+                        tmp = cache_path.with_suffix(cache_path.suffix + ".restore")
+                        tmp.write_bytes(previous_cache)
+                        os.replace(tmp, cache_path)
+                    with self.lock:
+                        self.scan_cache[profile_id] = scan
+                    return result
+            else:
+                filter_result = refresh_payload.get("filter_result") or {}
+                result = {
+                    **filter_result,
+                    **self._result_context(profile, scan),
+                    "ok": True,
+                    "installed": False,
+                    "message": "地区规则已保存",
+                }
+
+            with self.lock:
+                latest = self.load_config()
+                latest_profile = get_profile(latest, profile_id)
+                latest_profile["filter"] = copy.deepcopy(profile["filter"])
+                latest_profile["regions"] = copy.deepcopy(profile["regions"])
+                self._save(latest)
+                self._update_scan_cache(latest, latest_profile)
+            self._record_result(profile_id, result)
+            return result
 
         return self._run_operation("apply", profile_id, worker)
 
@@ -347,6 +434,7 @@ class AppState:
             profile["filter"] = copy.deepcopy(updated["filter"])
             profile["last_refresh_at"] = result.generated_at
             profile["last_refresh_epoch"] = int(time.time())
+            profile["source_pending"] = False
             self._operation_progress("quota", "正在读取订阅额度", 40)
             info = payload.get("subscription_info") or {}
             if info.get("ok"):
@@ -354,6 +442,11 @@ class AppState:
                 profile["quota"] = info
             with self.lock:
                 self._update_scan_cache(config, profile)
+                valid_nodes = {str(node.get("name")) for node in self.scan_cache[profile["id"]].get("nodes", [])}
+                profile["latency"]["results"] = {
+                    name: delay for name, delay in profile["latency"].get("results", {}).items()
+                    if name in valid_nodes
+                }
         return config, payload, updated
 
     def refresh_profile(self, profile_id: str, install: bool | None = None) -> dict[str, Any]:
@@ -367,18 +460,56 @@ class AppState:
         with self.lock:
             config = self.load_config()
             active = profile_id == config["active_subscription_id"]
+            original_scan = copy.deepcopy(self.scan_cache.get(profile_id, {}))
+            original_candidate = runtime_config(config, get_profile(config, profile_id))
+            tracked_paths = [
+                Path(original_candidate["subscription"]["cache_path"]),
+                Path(original_candidate["subscription"]["last_source_path"]),
+            ]
+            original_files = {
+                path: path.read_bytes() if path.exists() else None
+                for path in tracked_paths
+            }
         config, refresh_payload, candidate = self._refresh_candidate(config, profile_id)
         if not refresh_payload.get("ok"):
             result = {"ok": False, "stage": "refresh", "error": refresh_payload.get("error"), "refresh": refresh_payload}
             self._record_result(profile_id, result)
             return result
-        with self.lock:
-            self._save(config)
-        if not (active if install is None else install):
+        should_install = active if install is None else install
+        if not should_install:
+            with self.lock:
+                self._save(config)
             result = {"ok": True, "installed": False, "message": "订阅缓存已更新", "refresh": refresh_payload}
             self._record_result(profile_id, result)
             return result
-        return self._install_candidate(config, profile_id, candidate, switching=False)
+        result = self._install_candidate(config, profile_id, candidate, switching=False)
+        if not result.get("ok"):
+            for path, content in original_files.items():
+                if content is None:
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+                else:
+                    tmp = path.with_suffix(path.suffix + ".restore")
+                    tmp.write_bytes(content)
+                    os.replace(tmp, path)
+            with self.lock:
+                self.scan_cache[profile_id] = original_scan
+            return result
+
+        with self.lock:
+            latest = self.load_config()
+            latest_profile = get_profile(latest, profile_id)
+            refreshed_profile = get_profile(config, profile_id)
+            selected_node = latest_profile.get("selected_node")
+            last_result = latest_profile.get("last_result")
+            latest_profile.update(copy.deepcopy(refreshed_profile))
+            latest_profile["selected_node"] = selected_node
+            latest_profile["last_result"] = last_result
+            self._save(latest)
+            self._update_scan_cache(latest, latest_profile)
+        return result
 
     def _install_candidate(self, config: dict[str, Any], profile_id: str, candidate: dict[str, Any], switching: bool) -> dict[str, Any]:
         self._operation_progress("install", "正在生成 OpenClash 配置", 50)
@@ -447,8 +578,13 @@ class AppState:
                 config = latest
                 profile = target
         elif not selected:
-            selected = kept_nodes[0] if kept_nodes else ""
-            selection_reason = "first_kept"
+            saved_latencies = profile.get("latency", {}).get("results", {})
+            reachable = {
+                name: delay for name, delay in saved_latencies.items()
+                if name in kept_nodes and isinstance(delay, (int, float)) and delay > 0
+            }
+            selected = min(reachable, key=reachable.get) if reachable else (kept_nodes[0] if kept_nodes else "")
+            selection_reason = "lowest_cached_latency" if reachable else "first_kept"
 
         selection: dict[str, Any] = {
             "selected_node": selected,
@@ -505,8 +641,11 @@ class AppState:
                 "updated_at": now_text(),
                 "error": None,
             }
+        with self.lock:
+            scan = copy.deepcopy(self.scan_cache.get(profile_id, {}))
         result = {
             **filter_result,
+            **self._result_context(profile, scan),
             "ok": True,
             "changed": install.changed,
             "reload": reload_result,
@@ -605,7 +744,6 @@ class AppState:
                 if profile_id != config["active_subscription_id"]:
                     return {"ok": False, "error": "只能选择当前激活订阅的节点"}
                 _, candidate = self._profile_config(config, profile_id)
-            self._operation_progress("selection", "正在切换到指定节点", 60)
             result = mihomo_select_node(candidate, node_name)
             with self.lock:
                 config = self.load_config()
@@ -621,7 +759,7 @@ class AppState:
                 self._save(config)
             return result
 
-        return self._run_operation("select", profile_id, worker)
+        return self._run_quick_operation(worker)
 
     def reload_openclash(self, config: dict[str, Any] | None = None) -> dict[str, Any]:
         config = config or self.load_config()

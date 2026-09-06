@@ -110,6 +110,9 @@ def select_node(config: dict[str, Any], node_name: str) -> dict[str, Any]:
         raise RuntimeError("该节点不在当前已启用地区中")
     path = "/proxies/" + urllib.parse.quote(str(selector["name"]), safe="")
     api_request(config, path, method="PUT", payload={"name": node_name})
+    verified = selector_status(config)
+    if verified.get("selected") != node_name or verified.get("now") != node_name:
+        raise RuntimeError("节点切换后验证失败，OpenClash 未使用所选节点")
     return {"ok": True, "group": selector["name"], "selected_node": node_name}
 
 
