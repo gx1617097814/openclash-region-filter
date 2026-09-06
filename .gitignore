@@ -19,3 +19,6 @@ pasted-user.yaml
 alpine-minirootfs-*.tar.gz
 
 .DS_Store
+
+# Local router access credentials. Never commit this file.
+.router.env

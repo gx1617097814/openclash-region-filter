@@ -68,6 +68,18 @@ The UI intentionally exposes no separate refresh, reload, install, or verificati
 
 ## Router Deployment
 
+When SSH cannot complete its TCP handshake, use the ttyd WebSocket command client
+instead of the LuCI terminal:
+
+```sh
+node scripts/router-ttyd-exec.mjs --env .router.env -- "command"
+```
+
+The local `.router.env` must remain Git-ignored with mode `600`. Its format is
+documented in `.router.env.example`; never print or commit its password. The client
+suppresses the login transcript and terminal echo, but callers must still redact any
+sensitive command output.
+
 Typical deploy command:
 
 ```sh

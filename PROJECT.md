@@ -83,6 +83,17 @@ openclash-region-filter
 
 ## 推荐的快速部署方式
 
+当前网络若能访问 LuCI/ttyd、但 SSH TCP 握手无法完成，可以使用 ttyd
+WebSocket 命令客户端代替网页终端。创建不纳入 Git 的 `.router.env`，设置
+权限为 `600`，然后执行：
+
+```sh
+node scripts/router-ttyd-exec.mjs --env .router.env -- "命令"
+```
+
+环境文件格式见 `.router.env.example`。客户端不会打印凭据或登录阶段内容，
+因此适合后续自动状态检查、部署和回滚脚本调用。
+
 后续版本更新建议走 SSH 一键部署，不再使用 LuCI/ttyd 网页终端。首次使用前，把本机 SSH key 安装到路由器：
 
 ```sh

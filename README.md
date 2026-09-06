@@ -67,6 +67,24 @@ nsenter -t 1 -m -u -i -n -p -- /etc/init.d/openclash restart
 
 ## 快速部署到 iStoreOS
 
+### 无需网页终端的路由器命令
+
+如果当前网络无法完成 SSH 握手，可以通过 iStoreOS 自带 ttyd 的 WebSocket
+接口执行命令。凭据只保存在本机 `.router.env`，该文件已被 Git 忽略，并且
+必须设置为仅当前用户可读：
+
+```sh
+cp .router.env.example .router.env
+chmod 600 .router.env
+node scripts/router-ttyd-exec.mjs --env .router.env --check-config
+node scripts/router-ttyd-exec.mjs --env .router.env -- "uname -a"
+```
+
+脚本在发送远程命令前关闭终端回显，不会输出用户名、密码或登录过程。命令
+自身的输出仍会正常返回，因此检查包含敏感信息的文件时仍应使用脱敏命令。
+
+### SSH 部署
+
 首次配置免密 SSH：
 
 ```sh
