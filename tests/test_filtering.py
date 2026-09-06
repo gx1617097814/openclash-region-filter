@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,10 +16,10 @@ sys.path.insert(0, str(ROOT))
 from app.defaults import DEFAULT_CONFIG
 from app.filtering import LATENCY_GROUP_NAME, filter_config_data, scan_regions
 from app.config import ConfigStore, merge_regions
-from app.service import AppState, INDEX_HTML
+from app.service import AppState, INDEX_HTML, automation_loop
 from app.mihomo import selector_status
-from app.profiles import get_profile, normalize_profiles, runtime_config
-from app.subscription import install_filtered_config, parse_subscription_userinfo, refresh_subscription
+from app.profiles import get_profile, new_profile, normalize_profiles, runtime_config
+from app.subscription import InstallResult, install_filtered_config, parse_subscription_userinfo, refresh_subscription
 
 
 class FilteringTest(unittest.TestCase):
@@ -87,8 +88,9 @@ class FilteringTest(unittest.TestCase):
 
         self.assertEqual(set(auto), set(names))
         self.assertFalse([name for name in auto if "香江" in name or "中国" in name])
-        self.assertEqual(select[0], "♻️ 自动选择")
-        self.assertEqual(set(select[1:]), set(names))
+        self.assertEqual(select[0], "🇸🇬狮城-E(流量)")
+        self.assertEqual(set(select[:-1]), set(names))
+        self.assertEqual(select[-1], "♻️ 自动选择")
 
     def test_region_migration_adds_new_default_regions(self) -> None:
         saved = [
@@ -210,7 +212,25 @@ class FilteringTest(unittest.TestCase):
         }
         filtered, _ = filter_config_data(data, copy.deepcopy(DEFAULT_CONFIG))
         primary = filtered["proxy-groups"][0]["proxies"]
-        self.assertEqual(primary, ["自动线路", "🇺🇸美国-A", "🇯🇵日本-A"])
+        self.assertEqual(primary, ["🇺🇸美国-A", "🇯🇵日本-A", "自动线路"])
+
+    def test_primary_selector_restores_preferred_leaf_first(self) -> None:
+        data = {
+            "proxies": [
+                {"name": "SG-A", "type": "ss"},
+                {"name": "SG-B", "type": "ss"},
+            ],
+            "proxy-groups": [
+                {"name": "Proxy", "type": "select", "proxies": ["Auto", "SG-A", "SG-B"]},
+                {"name": "Auto", "type": "url-test", "proxies": ["SG-A", "SG-B"]},
+            ],
+        }
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["filter"]["preferred_node"] = "SG-B"
+
+        filtered, _ = filter_config_data(data, config)
+
+        self.assertEqual(filtered["proxy-groups"][0]["proxies"], ["SG-B", "SG-A", "Auto"])
 
     def test_parse_subscription_userinfo(self) -> None:
         info = parse_subscription_userinfo(
@@ -223,6 +243,13 @@ class FilteringTest(unittest.TestCase):
         self.assertEqual(info["used_text"], "3.0 GB")
         self.assertEqual(info["total_text"], "10.0 GB")
         self.assertEqual(info["expire_text"], "2030-01-01 08:00:00")
+
+    def test_zero_usage_is_not_displayed_as_unlimited(self) -> None:
+        info = parse_subscription_userinfo("upload=0; download=0; total=0; expire=0")
+
+        self.assertEqual(info["used_text"], "0 B")
+        self.assertEqual(info["total_text"], "∞")
+        self.assertEqual(info["remaining_text"], "∞")
 
     def test_managed_mode_keeps_internal_controls_automatic(self) -> None:
         config = copy.deepcopy(DEFAULT_CONFIG)
@@ -253,6 +280,37 @@ class FilteringTest(unittest.TestCase):
         candidate = runtime_config(config, profile)
         self.assertIn(profile["id"], candidate["subscription"]["cache_path"])
 
+    def test_legacy_timestamps_seed_persistent_attempt_times(self) -> None:
+        config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+        profile = get_profile(config)
+        profile["last_refresh_at"] = "2026-09-01 12:00:00"
+        profile["last_refresh_epoch"] = 0
+        profile["last_refresh_attempt_epoch"] = 0
+        profile["latency"]["last_test_at"] = "2026-09-01 13:00:00"
+        profile["latency"]["last_test_epoch"] = 0
+        profile["latency"]["last_test_attempt_epoch"] = 0
+
+        migrated = get_profile(normalize_profiles(config))
+
+        self.assertGreater(migrated["last_refresh_epoch"], 0)
+        self.assertEqual(migrated["last_refresh_attempt_epoch"], migrated["last_refresh_epoch"])
+        self.assertGreater(migrated["latency"]["last_test_epoch"], 0)
+        self.assertEqual(
+            migrated["latency"]["last_test_attempt_epoch"],
+            migrated["latency"]["last_test_epoch"],
+        )
+
+    def test_automation_skips_latency_before_first_subscription_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = AppState(ConfigStore(Path(tmpdir) / "config.json"))
+            with patch.object(state, "refresh_profile", return_value={"ok": False}) as refresh_profile, \
+                 patch.object(state, "test_latency") as test_latency, \
+                 patch.object(state.stop_event, "wait", side_effect=lambda _seconds: state.stop_event.set()):
+                automation_loop(state)
+
+        refresh_profile.assert_not_called()
+        test_latency.assert_not_called()
+
     def test_taiwan_alias_without_flag_is_classified(self) -> None:
         data = {"proxies": [{"name": "TW-IPv6-P1-01", "type": "ss"}]}
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -274,6 +332,9 @@ class FilteringTest(unittest.TestCase):
         self.assertNotIn("刷新文件", INDEX_HTML)
         self.assertNotIn("立即过滤并应用", INDEX_HTML)
         self.assertNotIn("后续无需手动操作", INDEX_HTML)
+        self.assertNotIn("if(!confirm(", INDEX_HTML)
+        self.assertIn('id="operation"', INDEX_HTML)
+        self.assertIn('id="confirmDialog"', INDEX_HTML)
 
     def test_selector_status_resolves_nested_group_to_real_node(self) -> None:
         payload = {
@@ -301,23 +362,206 @@ class FilteringTest(unittest.TestCase):
     def test_state_returns_result_for_active_profile_only(self) -> None:
         config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
         active = get_profile(config)
+        active["last_result"] = {"profile": "active"}
         standby = copy.deepcopy(active)
         standby["id"] = "standby"
         standby["name"] = "Standby"
+        standby["last_result"] = {"profile": "standby"}
         config["subscriptions"].append(standby)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            state = AppState(ConfigStore(Path(tmpdir) / "config.json"))
-            state._save(config)
-            state.last_result = {"profile": "standby"}
-            state.profile_results = {
-                active["id"]: {"profile": "active"},
-                standby["id"]: {"profile": "standby"},
-            }
-            with patch("app.service.selector_status", side_effect=RuntimeError("offline")):
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            store.save(config)
+            state = AppState(store)
+            with patch("app.service.selector_status") as status:
                 payload = state.state_payload()
 
         self.assertEqual(payload["last_result"], {"profile": "active"})
+        status.assert_not_called()
+
+    def test_switch_restores_remembered_reachable_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+            config["subscription"]["output_config_path"] = str(Path(tmpdir) / "output.yaml")
+            target = new_profile("Standby")
+            target["id"] = "standby"
+            target["selected_node"] = "SG-B"
+            config["subscriptions"].append(target)
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            store.save(config)
+            state = AppState(store)
+            candidate = runtime_config(state.load_config(), get_profile(state.load_config(), "standby"))
+            state.last_subscription_result = {"filter_result": {"kept_nodes": ["SG-A", "SG-B"]}}
+            install = InstallResult(True, True, "cache", str(Path(tmpdir) / "output.yaml"), "now")
+
+            with patch("app.service.install_filtered_config", return_value=install), \
+                 patch.object(state, "reload_openclash", return_value={"ok": True}), \
+                 patch("app.service.time.sleep"), \
+                 patch("app.service.test_latencies", return_value={"ok": True, "results": {"SG-A": 90, "SG-B": 120}}), \
+                 patch("app.service.mihomo_select_node", return_value={"ok": True}) as select, \
+                 patch("app.service.verify_running_state", return_value={"ok": True, "bad_nodes": []}):
+                result = state._install_candidate(state.load_config(), "standby", candidate, switching=True)
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["selection"]["reason"], "restored")
+            self.assertEqual(get_profile(state.load_config())["id"], "standby")
+            select.assert_called_once_with(candidate, "SG-B")
+
+    def test_switch_rolls_back_when_all_nodes_are_unreachable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "output.yaml"
+            output.write_text("old: true\n", encoding="utf-8")
+            config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+            config["subscription"]["output_config_path"] = str(output)
+            target = new_profile("Standby")
+            target["id"] = "standby"
+            config["subscriptions"].append(target)
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            store.save(config)
+            state = AppState(store)
+            candidate = runtime_config(state.load_config(), get_profile(state.load_config(), "standby"))
+            state.last_subscription_result = {"filter_result": {"kept_nodes": ["SG-A", "SG-B"]}}
+            install = InstallResult(True, True, "cache", str(output), "now")
+
+            with patch("app.service.install_filtered_config", return_value=install), \
+                 patch.object(state, "reload_openclash", return_value={"ok": True}), \
+                 patch("app.service.time.sleep"), \
+                 patch("app.service.test_latencies", return_value={"ok": False, "results": {"SG-A": None, "SG-B": None}}), \
+                 patch("app.service.mihomo_select_node") as select:
+                result = state._install_candidate(state.load_config(), "standby", candidate, switching=True)
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["rollback_restored"])
+            self.assertNotEqual(get_profile(state.load_config())["id"], "standby")
+            select.assert_not_called()
+
+    def test_active_refresh_keeps_selected_node_without_latency_failover(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+            config["subscription"]["output_config_path"] = str(Path(tmpdir) / "output.yaml")
+            get_profile(config)["selected_node"] = "SG-B"
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            store.save(config)
+            state = AppState(store)
+            active = get_profile(state.load_config())
+            candidate = runtime_config(state.load_config(), active)
+            state.last_subscription_result = {"filter_result": {"kept_nodes": ["SG-A", "SG-B"]}}
+            install = InstallResult(True, False, "cache", str(Path(tmpdir) / "output.yaml"), "now")
+
+            with patch("app.service.install_filtered_config", return_value=install), \
+                 patch("app.service.test_latencies") as latency, \
+                 patch("app.service.mihomo_select_node", return_value={"ok": True}) as select, \
+                 patch("app.service.verify_running_state", return_value={"ok": True, "bad_nodes": []}):
+                result = state._install_candidate(state.load_config(), active["id"], candidate, switching=False)
+
+            self.assertTrue(result["ok"])
+            latency.assert_not_called()
+            select.assert_called_once_with(candidate, "SG-B")
+
+    def test_unchanged_refresh_failure_does_not_reload_openclash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+            config["subscription"]["output_config_path"] = str(Path(tmpdir) / "output.yaml")
+            get_profile(config)["selected_node"] = "SG-A"
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            store.save(config)
+            state = AppState(store)
+            active = get_profile(state.load_config())
+            candidate = runtime_config(state.load_config(), active)
+            state.last_subscription_result = {"filter_result": {"kept_nodes": ["SG-A"]}}
+            install = InstallResult(True, False, "cache", str(Path(tmpdir) / "output.yaml"), "now")
+
+            with patch("app.service.install_filtered_config", return_value=install), \
+                 patch.object(state, "reload_openclash") as reload_openclash, \
+                 patch("app.service.mihomo_select_node", side_effect=RuntimeError("API unavailable")), \
+                 patch("app.service.verify_running_state") as verify:
+                result = state._install_candidate(state.load_config(), active["id"], candidate, switching=False)
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["rollback_restored"])
+            reload_openclash.assert_not_called()
+            verify.assert_not_called()
+
+    def test_operation_status_survives_page_refresh_while_work_is_running(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = AppState(ConfigStore(Path(tmpdir) / "config.json"))
+            profile_id = state.load_config()["active_subscription_id"]
+            started = threading.Event()
+            release = threading.Event()
+
+            def worker() -> dict[str, object]:
+                state._operation_progress("reload", "正在重载 OpenClash", 65)
+                started.set()
+                release.wait(2)
+                return {"ok": True}
+
+            thread = threading.Thread(
+                target=lambda: state._run_operation("activate", profile_id, worker)
+            )
+            thread.start()
+            self.assertTrue(started.wait(1))
+            payload = state.state_payload()
+            release.set()
+            thread.join(2)
+
+        self.assertTrue(payload["operation"]["active"])
+        self.assertEqual(payload["operation"]["stage"], "reload")
+        self.assertEqual(payload["operation"]["progress"], 65)
+
+    def test_editing_subscription_url_clears_stale_profile_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+            config["subscription"]["profiles_dir"] = str(Path(tmpdir) / "profiles")
+            profile = get_profile(config)
+            profile["source_url"] = "https://example.test/old.yaml"
+            profile["last_refresh_at"] = "2026-01-01 00:00:00"
+            profile["last_refresh_epoch"] = 1
+            profile["quota"] = {"ok": True}
+            profile["last_result"] = {"ok": True}
+            profile["latency"] = {
+                "interval_seconds": 14400,
+                "last_test_at": "2026-01-01 00:00:00",
+                "last_test_epoch": 1,
+                "results": {"old": 100},
+            }
+            profile["selected_node"] = "old"
+            store.save(config)
+            state = AppState(store)
+
+            result = state.save_profile({
+                "id": profile["id"],
+                "source_url": "https://example.test/new.yaml",
+            })
+            updated = get_profile(state.load_config(), profile["id"])
+
+        self.assertTrue(result["ok"])
+        self.assertIsNone(updated["last_refresh_at"])
+        self.assertEqual(updated["quota"], {})
+        self.assertIsNone(updated["last_result"])
+        self.assertEqual(updated["latency"]["results"], {})
+        self.assertEqual(updated["selected_node"], "")
+
+    def test_refresh_reuses_quota_header_from_yaml_download(self) -> None:
+        data = {
+            "proxies": [{"name": "🇸🇬SG-A", "type": "ss"}],
+            "proxy-groups": [{"name": "Proxy", "type": "select", "proxies": ["🇸🇬SG-A"]}],
+        }
+        header = "upload=1; download=2; total=10; expire=0"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = copy.deepcopy(DEFAULT_CONFIG)
+            config["subscription"]["source_url"] = "https://example.test/sub.yaml"
+            config["subscription"]["cache_path"] = str(Path(tmpdir) / "cache.yaml")
+            config["subscription"]["last_source_path"] = str(Path(tmpdir) / "source.yaml")
+            with patch(
+                "app.subscription.fetch_subscription_document",
+                return_value=(yaml.safe_dump(data, allow_unicode=True), header, 200),
+            ) as fetch:
+                _, result = refresh_subscription(config)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.subscription_info["remaining"], 7)
+        fetch.assert_called_once()
 
 
 if __name__ == "__main__":

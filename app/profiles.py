@@ -19,12 +19,17 @@ def new_profile(name: str = "新订阅", source_url: str = "") -> dict[str, Any]
         "source_url": source_url,
         "refresh_interval_seconds": 3600,
         "last_refresh_at": None,
+        "last_refresh_epoch": 0,
+        "last_refresh_attempt_epoch": 0,
+        "last_result": None,
         "filter": copy.deepcopy(DEFAULT_CONFIG["filter"]),
         "regions": copy.deepcopy(DEFAULT_CONFIG["regions"]),
         "quota": {},
         "latency": {
             "interval_seconds": 14400,
             "last_test_at": None,
+            "last_test_epoch": 0,
+            "last_test_attempt_epoch": 0,
             "results": {},
         },
         "selected_node": "",
@@ -34,6 +39,15 @@ def new_profile(name: str = "新订阅", source_url: str = "") -> dict[str, Any]
 def safe_profile_id(value: Any) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_-]", "", str(value or ""))
     return cleaned[:48] or uuid.uuid4().hex[:12]
+
+
+def saved_time_epoch(value: Any) -> int:
+    if not value:
+        return 0
+    try:
+        return int(time.mktime(time.strptime(str(value), "%Y-%m-%d %H:%M:%S")))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def normalize_profiles(config: dict[str, Any]) -> dict[str, Any]:
@@ -62,6 +76,15 @@ def normalize_profiles(config: dict[str, Any]) -> dict[str, Any]:
         profile["name"] = str(profile.get("name") or f"订阅 {index + 1}")[:80]
         profile["source_url"] = str(profile.get("source_url") or "").strip()
         profile["refresh_interval_seconds"] = max(300, int(profile.get("refresh_interval_seconds", 3600)))
+        profile["last_refresh_epoch"] = max(
+            0,
+            int(profile.get("last_refresh_epoch", 0) or saved_time_epoch(profile.get("last_refresh_at"))),
+        )
+        profile["last_refresh_attempt_epoch"] = max(
+            profile["last_refresh_epoch"],
+            int(profile.get("last_refresh_attempt_epoch", 0) or 0),
+        )
+        profile["last_result"] = profile.get("last_result") if isinstance(profile.get("last_result"), dict) else None
         profile["filter"] = {**copy.deepcopy(DEFAULT_CONFIG["filter"]), **(profile.get("filter") or {})}
         profile["filter"]["allow_unknown"] = True
         profile["filter"]["keep_disabled_proxies_for_latency"] = True
@@ -70,6 +93,14 @@ def normalize_profiles(config: dict[str, Any]) -> dict[str, Any]:
         profile["latency"] = {
             "interval_seconds": max(0, int(latency.get("interval_seconds", 14400))),
             "last_test_at": latency.get("last_test_at"),
+            "last_test_epoch": max(
+                0,
+                int(latency.get("last_test_epoch", 0) or saved_time_epoch(latency.get("last_test_at"))),
+            ),
+            "last_test_attempt_epoch": max(
+                int(latency.get("last_test_epoch", 0) or saved_time_epoch(latency.get("last_test_at"))),
+                int(latency.get("last_test_attempt_epoch", 0) or 0),
+            ),
             "results": latency.get("results") if isinstance(latency.get("results"), dict) else {},
         }
         normalized.append(profile)
@@ -95,8 +126,8 @@ def get_profile(config: dict[str, Any], profile_id: str | None = None) -> dict[s
 def runtime_config(config: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(config)
     profile_id = safe_profile_id(profile["id"])
-    root = Path("/data/subscriptions") / profile_id
     subscription = copy.deepcopy(config.get("subscription", DEFAULT_CONFIG["subscription"]))
+    root = Path(str(subscription.get("profiles_dir") or "/data/subscriptions")) / profile_id
     subscription.update({
         "source_url": profile.get("source_url", ""),
         "refresh_interval_seconds": profile.get("refresh_interval_seconds", 3600),
@@ -105,6 +136,7 @@ def runtime_config(config: dict[str, Any], profile: dict[str, Any]) -> dict[str,
     })
     result["subscription"] = subscription
     result["filter"] = copy.deepcopy(profile["filter"])
+    result["filter"]["preferred_node"] = str(profile.get("selected_node") or "")
     result["regions"] = copy.deepcopy(profile["regions"])
     return result
 

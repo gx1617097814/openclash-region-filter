@@ -15,6 +15,7 @@ DEFAULT_CONFIG = {
         "token": "",
         "cache_path": "/data/subscription-filtered.yaml",
         "last_source_path": "/data/subscription-source.yaml",
+        "profiles_dir": "/data/subscriptions",
         "output_config_path": "/etc/openclash/config/openclash-region-filter.yaml",
         "timeout_seconds": 30,
         "refresh_interval_seconds": 3600,

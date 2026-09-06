@@ -26,6 +26,7 @@ class SubscriptionResult:
     generated_at: str | None
     regions_added: list[str]
     filter_result: dict[str, Any] | None
+    subscription_info: dict[str, Any] | None
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -49,7 +50,7 @@ def format_bytes(value: int | None) -> str:
     if value is None:
         return "未知"
     if value == 0:
-        return "∞"
+        return "0 B"
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
     amount = float(value)
     unit = units[0]
@@ -105,8 +106,8 @@ def parse_subscription_userinfo(header: str) -> dict[str, Any]:
         "upload_text": format_bytes(upload),
         "download_text": format_bytes(download),
         "used_text": format_bytes(used),
-        "total_text": format_bytes(total),
-        "remaining_text": format_bytes(remaining),
+        "total_text": "∞" if total == 0 else format_bytes(total),
+        "remaining_text": "∞" if total == 0 else format_bytes(remaining),
     }
 
 
@@ -144,6 +145,11 @@ def atomic_write(path: Path, content: str) -> None:
 
 
 def fetch_subscription_yaml(source_url: str, timeout: int, user_agent: str) -> str:
+    text, _, _ = fetch_subscription_document(source_url, timeout, user_agent)
+    return text
+
+
+def fetch_subscription_document(source_url: str, timeout: int, user_agent: str) -> tuple[str, str, int]:
     request = urllib.request.Request(
         source_url,
         headers={
@@ -153,7 +159,11 @@ def fetch_subscription_yaml(source_url: str, timeout: int, user_agent: str) -> s
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
-        return response.read().decode(charset, errors="replace")
+        return (
+            response.read().decode(charset, errors="replace"),
+            response.headers.get("subscription-userinfo") or "",
+            response.status,
+        )
 
 
 def refresh_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], SubscriptionResult]:
@@ -173,11 +183,12 @@ def refresh_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], Subscr
             generated_at=None,
             regions_added=[],
             filter_result=None,
+            subscription_info=None,
             error="subscription.source_url is empty",
         )
 
     try:
-        source_text = fetch_subscription_yaml(source_url, timeout, user_agent)
+        source_text, userinfo_header, response_status = fetch_subscription_document(source_url, timeout, user_agent)
         data = load_yaml_text(source_text)
         prepared_config = config_with_dynamic_regions(data, config)
         before_region_ids = {str(region.get("id")) for region in config.get("regions", [])}
@@ -188,15 +199,22 @@ def refresh_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], Subscr
         rendered = dump_yaml(filtered)
 
         old_rendered = cache_path.read_text(encoding="utf-8") if cache_path.exists() else None
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(rendered, encoding="utf-8")
-        source_path.parent.mkdir(parents=True, exist_ok=True)
-        source_path.write_text(source_text, encoding="utf-8")
+        atomic_write(cache_path, rendered)
+        atomic_write(source_path, source_text)
 
         updated_config = dict(config)
         updated_config["regions"] = prepared_config["regions"]
         filter_payload = filter_result.to_dict()
         filter_payload["config_path"] = str(source_path)
+        subscription_info = None
+        if userinfo_header:
+            subscription_info = parse_subscription_userinfo(userinfo_header)
+            subscription_info.pop("raw", None)
+            subscription_info.update({
+                "ok": True,
+                "status": response_status,
+                "checked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
 
         return updated_config, SubscriptionResult(
             ok=True,
@@ -206,6 +224,7 @@ def refresh_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], Subscr
             generated_at=time.strftime("%Y-%m-%d %H:%M:%S"),
             regions_added=regions_added,
             filter_result=filter_payload,
+            subscription_info=subscription_info,
         )
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
         return config, SubscriptionResult(
@@ -216,6 +235,7 @@ def refresh_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], Subscr
             generated_at=None,
             regions_added=[],
             filter_result=None,
+            subscription_info=None,
             error=str(exc),
         )
 

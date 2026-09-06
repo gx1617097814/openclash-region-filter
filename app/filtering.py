@@ -436,7 +436,11 @@ def filter_config_data(data: dict[str, Any], config: dict[str, Any]) -> tuple[di
             if group_name == primary_group_name:
                 auto_refs = [item for item in new_items if item in group_names]
                 leaf_refs = [item for item in desired_names if item not in auto_refs]
-                new_items = auto_refs + leaf_refs
+                preferred = str(config["filter"].get("preferred_node") or "")
+                if preferred in leaf_refs:
+                    leaf_refs = [preferred] + [item for item in leaf_refs if item != preferred]
+                # Keep a direct leaf first so health-check groups cannot silently change the public IP.
+                new_items = leaf_refs + auto_refs
 
             group["proxies"] = new_items
             group_summaries.append(
