@@ -339,6 +339,9 @@ class FilteringTest(unittest.TestCase):
         self.assertIn('id="confirmDialog"', INDEX_HTML)
         self.assertIn("启用范围", INDEX_HTML)
         self.assertNotIn("保留 ${retained} 个节点", INDEX_HTML)
+        self.assertIn("sessionStorage.setItem(expandedStorageKey", INDEX_HTML)
+        self.assertIn("expandedKey(p.id,region.id)", INDEX_HTML)
+        self.assertIn('data-profile="${esc(p.id)}"', INDEX_HTML)
         choose_node = INDEX_HTML.split("async function chooseNode", 1)[1].split("async function poll", 1)[0]
         self.assertNotIn("await refresh()", choose_node)
         self.assertNotIn("busy(", choose_node)
