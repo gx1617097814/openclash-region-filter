@@ -157,6 +157,7 @@ function execute(config, command, debug = false) {
   return new Promise((resolve, reject) => {
     const marker = crypto.randomUUID().replaceAll("-", "");
     const readyMarker = `__OCFILTER_READY_${marker}__`;
+    const outputMarker = `__OCFILTER_OUTPUT_${marker}__`;
     const doneMarker = `__OCFILTER_DONE_${marker}__`;
     const socket = new WebSocket(config.url, "tty");
     socket.binaryType = "arraybuffer";
@@ -175,7 +176,7 @@ function execute(config, command, debug = false) {
       transcript = "";
       output = "";
       const quotedCommand = shellQuote(command);
-      sendInput(socket, `sh -c ${quotedCommand}; __ocfilter_rc=$?; printf '\\n${doneMarker}%s\\n' "$__ocfilter_rc"; stty echo\r`);
+      sendInput(socket, `printf '\\n${outputMarker}\\n'; sh -c ${quotedCommand}; __ocfilter_rc=$?; printf '\\n${doneMarker}%s\\n' "$__ocfilter_rc"; stty echo\r`);
     };
 
     const finish = (error, result) => {
@@ -213,7 +214,11 @@ function execute(config, command, debug = false) {
           const afterMarker = output.slice(doneIndex + doneMarker.length);
           const codeMatch = /^(\d+)/.exec(afterMarker);
           if (!codeMatch) return;
-          const commandOutput = output.slice(0, doneIndex).replace(/^\n+|\n+$/g, "");
+          const outputIndex = output.indexOf(outputMarker);
+          if (outputIndex === -1 || outputIndex > doneIndex) return;
+          const commandOutput = output
+            .slice(outputIndex + outputMarker.length, doneIndex)
+            .replace(/^\n+|\n+$/g, "");
           finish(null, { code: Number(codeMatch[1]), output: commandOutput });
           return;
         }

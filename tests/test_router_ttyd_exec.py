@@ -116,8 +116,12 @@ class FakeTtyd:
                 marker = arming.split("__OCFILTER_READY_", 1)[1].split("__", 1)[0]
                 _send_frame(connection, f"0\n__OCFILTER_READY_{marker}__\nroot@iStoreOS:~# ".encode())
                 command = self._receive_text(connection)
+                output = command.split("__OCFILTER_OUTPUT_", 1)[1].split("__", 1)[0]
                 done = command.split("__OCFILTER_DONE_", 1)[1].split("__", 1)[0]
-                _send_frame(connection, f"0command output\n__OCFILTER_DONE_{done}__7\n".encode())
+                _send_frame(
+                    connection,
+                    f"0root@iStoreOS:~# \n__OCFILTER_OUTPUT_{output}__\ncommand output\n__OCFILTER_DONE_{done}__7\n".encode(),
+                )
                 try:
                     _read_frame(connection)
                 except (ConnectionError, OSError):
