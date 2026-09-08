@@ -21,7 +21,7 @@ from .filtering import scan_regions, verify_running_state
 from .mihomo import select_node as mihomo_select_node
 from .mihomo import selector_status, test_latencies
 from .profiles import get_profile, new_profile, normalize_profiles, now_text, runtime_config
-from .subscription import install_filtered_config, refilter_cached_subscription, refresh_subscription
+from .subscription import fetch_subscription_info, install_filtered_config, refilter_cached_subscription, refresh_subscription
 
 LOG = logging.getLogger("openclash-region-filter")
 INDEX_HTML = Path(__file__).with_name("dashboard.html").read_text(encoding="utf-8")
@@ -297,7 +297,36 @@ class AppState:
         }
 
     def save_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._run_quick_operation(lambda: self._save_profile_locked(payload))
+        def worker() -> dict[str, Any]:
+            result = self._save_profile_locked(payload)
+            if result.pop("probe_quota", False):
+                result["quota_available"] = self._probe_profile_quota(str(result["profile_id"]))
+            return result
+
+        return self._run_quick_operation(worker)
+
+    def _probe_profile_quota(self, profile_id: str) -> bool:
+        config = self.load_config()
+        profile, candidate = self._profile_config(config, profile_id)
+        expected_url = str(profile.get("source_url") or "")
+        info = fetch_subscription_info(candidate)
+        if info.get("ok"):
+            info.pop("raw", None)
+        else:
+            missing_header = "subscription-userinfo header is missing" in str(info.get("error") or "")
+            info = {
+                "ok": False,
+                "error": "订阅未提供额度信息" if missing_header else "额度读取失败",
+                "checked_at": now_text(),
+            }
+        with self.lock:
+            latest = self.load_config()
+            latest_profile = get_profile(latest, profile_id)
+            if str(latest_profile.get("source_url") or "") != expected_url:
+                return False
+            latest_profile["quota"] = info
+            self._save(latest)
+        return bool(info.get("ok"))
 
     def _save_profile_locked(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
@@ -324,8 +353,12 @@ class AppState:
             if source_changed:
                 profile["last_refresh_attempt_epoch"] = 0
                 profile["source_pending"] = True
+                profile["quota"] = {}
+            probe_quota = "source_url" in payload and bool(profile["source_url"]) and (
+                source_changed or not bool((profile.get("quota") or {}).get("ok"))
+            )
             self._save(config)
-            return {"ok": True, "profile_id": profile["id"]}
+            return {"ok": True, "profile_id": profile["id"], "probe_quota": probe_quota}
 
     def delete_profile(self, profile_id: str) -> dict[str, Any]:
         return self._run_quick_operation(lambda: self._delete_profile_locked(profile_id))
@@ -345,7 +378,13 @@ class AppState:
             shutil.rmtree(profiles_dir / profile_id, ignore_errors=True)
             return {"ok": True}
 
-    def save_regions(self, profile_id: str, enabled: list[str], excluded: list[str]) -> dict[str, Any]:
+    def save_regions(
+        self,
+        profile_id: str,
+        enabled: list[str],
+        excluded: list[str],
+        selected_node: str | None = None,
+    ) -> dict[str, Any]:
         def worker() -> dict[str, Any]:
             with self.lock:
                 config = self.load_config()
@@ -384,7 +423,26 @@ class AppState:
             profile["filter"] = copy.deepcopy(updated_candidate["filter"])
 
             if active:
-                result = self._install_candidate(proposed, profile_id, updated_candidate, switching=False)
+                requested_node = str(selected_node or "") if selected_node is not None else None
+                kept_nodes = set((refresh_payload.get("filter_result") or {}).get("kept_nodes") or [])
+                if requested_node is not None and requested_node not in kept_nodes:
+                    if previous_cache is None:
+                        try:
+                            cache_path.unlink()
+                        except FileNotFoundError:
+                            pass
+                    else:
+                        tmp = cache_path.with_suffix(cache_path.suffix + ".restore")
+                        tmp.write_bytes(previous_cache)
+                        os.replace(tmp, cache_path)
+                    return {"ok": False, "error": "请选择已启用地区中的节点后再保存"}
+                result = self._install_candidate(
+                    proposed,
+                    profile_id,
+                    updated_candidate,
+                    switching=False,
+                    requested_node=requested_node,
+                )
                 if not result.get("ok"):
                     if previous_cache is None:
                         try:
@@ -511,7 +569,14 @@ class AppState:
             self._update_scan_cache(latest, latest_profile)
         return result
 
-    def _install_candidate(self, config: dict[str, Any], profile_id: str, candidate: dict[str, Any], switching: bool) -> dict[str, Any]:
+    def _install_candidate(
+        self,
+        config: dict[str, Any],
+        profile_id: str,
+        candidate: dict[str, Any],
+        switching: bool,
+        requested_node: str | None = None,
+    ) -> dict[str, Any]:
         self._operation_progress("install", "正在生成 OpenClash 配置", 50)
         output_path = Path(candidate["subscription"]["output_config_path"])
         runtime_path = Path(str(candidate["openclash"].get("runtime_config_path") or ""))
@@ -534,13 +599,15 @@ class AppState:
         kept_nodes = list(filter_result.get("kept_nodes") or [])
         profile = get_profile(config, profile_id)
         remembered = str(profile.get("selected_node") or "")
+        if requested_node is not None:
+            remembered = requested_node
         if not switching and not remembered:
             cached_current = str(self.runtime_status.get("selected_node") or "")
             if cached_current in kept_nodes:
                 remembered = cached_current
 
         latency_result: dict[str, Any] | None = None
-        selection_reason = "restored"
+        selection_reason = "requested" if requested_node is not None else "restored"
         selected = remembered if remembered in kept_nodes else ""
         if switching and reload_result.get("ok"):
             self._operation_progress("latency", "正在验证候选节点连通性", 78)
@@ -880,7 +947,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/subscriptions/delete": result = state.delete_profile(str(payload.get("id", "")))
             elif path == "/api/subscriptions/refresh": result = state.refresh_profile(str(payload.get("id", "")))
             elif path == "/api/subscriptions/activate": result = state.activate_profile(str(payload.get("id", "")))
-            elif path == "/api/regions/apply": result = state.save_regions(str(payload.get("id", "")), payload.get("enabled_regions", []), payload.get("excluded_regions", []))
+            elif path == "/api/regions/apply": result = state.save_regions(str(payload.get("id", "")), payload.get("enabled_regions", []), payload.get("excluded_regions", []), str(payload.get("selected_node", "")) if "selected_node" in payload else None)
             elif path == "/api/latency/test": result = state.test_latency(str(payload.get("id", "")))
             elif path == "/api/nodes/select": result = state.select_node(str(payload.get("id", "")), str(payload.get("name", "")))
             else:

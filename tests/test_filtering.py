@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 import tempfile
 import threading
@@ -320,9 +321,9 @@ class FilteringTest(unittest.TestCase):
         self.assertEqual(scan["region_counts"]["taiwan"], 1)
 
     def test_dashboard_only_exposes_required_controls(self) -> None:
-        self.assertIn("地区开关会自动保存", INDEX_HTML)
-        self.assertIn("applyRegionDraft", INDEX_HTML)
-        self.assertNotIn("保存并应用", INDEX_HTML)
+        self.assertIn("先调整地区和待用节点，确认后统一保存", INDEX_HTML)
+        self.assertIn("saveChanges", INDEX_HTML)
+        self.assertIn("保存并应用", INDEX_HTML)
         self.assertIn("添加订阅", INDEX_HTML)
         self.assertIn("全部测速", INDEX_HTML)
         self.assertIn("自动测速", INDEX_HTML)
@@ -335,14 +336,26 @@ class FilteringTest(unittest.TestCase):
         self.assertNotIn("立即过滤并应用", INDEX_HTML)
         self.assertNotIn("后续无需手动操作", INDEX_HTML)
         self.assertNotIn("if(!confirm(", INDEX_HTML)
-        self.assertIn('id="operation"', INDEX_HTML)
+        self.assertNotIn('id="operation"', INDEX_HTML)
+        self.assertNotIn("operation-bar", INDEX_HTML)
+        self.assertIn('id="idleStatus"', INDEX_HTML)
+        self.assertIn('[hidden] { display:none !important; }', INDEX_HTML)
+        self.assertIn('id="saveBtn"', INDEX_HTML)
+        self.assertIn('id="profileSaveBtn"', INDEX_HTML)
+        self.assertIn("保存并读取额度", INDEX_HTML)
+        self.assertIn("operationLabel(op.kind)", INDEX_HTML)
+        self.assertIn("cursor:not-allowed", INDEX_HTML)
+        self.assertNotIn("cursor:wait", INDEX_HTML)
+        self.assertNotIn("applyRegionDraft", INDEX_HTML)
+        self.assertNotIn("regionTimer", INDEX_HTML)
         self.assertIn('id="confirmDialog"', INDEX_HTML)
         self.assertIn("启用范围", INDEX_HTML)
         self.assertNotIn("保留 ${retained} 个节点", INDEX_HTML)
         self.assertIn("sessionStorage.setItem(expandedStorageKey", INDEX_HTML)
         self.assertIn("expandedKey(p.id,region.id)", INDEX_HTML)
         self.assertIn('data-profile="${esc(p.id)}"', INDEX_HTML)
-        choose_node = INDEX_HTML.split("async function chooseNode", 1)[1].split("async function poll", 1)[0]
+        choose_node = INDEX_HTML.split("function chooseNode", 1)[1].split("async function poll", 1)[0]
+        self.assertNotIn("api(", choose_node)
         self.assertNotIn("await refresh()", choose_node)
         self.assertNotIn("busy(", choose_node)
 
@@ -444,14 +457,23 @@ class FilteringTest(unittest.TestCase):
 
             with patch("app.service.install_filtered_config", return_value=install), \
                  patch("app.service.refresh_subscription") as remote_refresh, \
-                 patch("app.service.mihomo_select_node", return_value={"ok": True}), \
+                 patch("app.service.mihomo_select_node", return_value={"ok": True}) as select, \
                  patch("app.service.verify_running_state", return_value={"ok": True, "bad_nodes": []}):
-                result = state.save_regions(profile["id"], ["singapore", "united_states"], [])
+                result = state.save_regions(
+                    profile["id"],
+                    ["singapore", "united_states"],
+                    [],
+                    selected_node="🇺🇸US-A",
+                )
             updated = get_profile(state.load_config())
 
         self.assertTrue(result["ok"])
         self.assertIn("hong_kong", updated["filter"]["excluded_regions"])
         self.assertNotIn("united_states", updated["filter"]["excluded_regions"])
+        self.assertEqual(updated["selected_node"], "🇺🇸US-A")
+        self.assertEqual(result["selection"]["reason"], "requested")
+        select.assert_called_once()
+        self.assertEqual(select.call_args.args[1], "🇺🇸US-A")
         remote_refresh.assert_not_called()
 
     def test_rejecting_every_visible_region_keeps_saved_state_and_cache(self) -> None:
@@ -712,7 +734,7 @@ class FilteringTest(unittest.TestCase):
         self.assertEqual(payload["operation"]["stage"], "reload")
         self.assertEqual(payload["operation"]["progress"], 65)
 
-    def test_editing_subscription_url_keeps_last_known_good_state_until_refresh(self) -> None:
+    def test_editing_subscription_url_probes_new_quota_and_keeps_runtime_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             store = ConfigStore(Path(tmpdir) / "config.json")
             config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
@@ -733,20 +755,52 @@ class FilteringTest(unittest.TestCase):
             store.save(config)
             state = AppState(store)
 
-            result = state.save_profile({
-                "id": profile["id"],
-                "source_url": "https://example.test/new.yaml",
-            })
+            quota = {
+                "ok": True,
+                "remaining": 80,
+                "remaining_text": "80 B",
+                "raw": "must-not-be-saved",
+            }
+            with patch("app.service.fetch_subscription_info", return_value=quota):
+                result = state.save_profile({
+                    "id": profile["id"],
+                    "source_url": "https://example.test/new.yaml",
+                })
             updated = get_profile(state.load_config(), profile["id"])
 
         self.assertTrue(result["ok"])
         self.assertTrue(updated["source_pending"])
         self.assertEqual(updated["last_refresh_attempt_epoch"], 0)
         self.assertEqual(updated["last_refresh_at"], "2026-01-01 00:00:00")
-        self.assertEqual(updated["quota"], {"ok": True})
+        self.assertTrue(result["quota_available"])
+        self.assertEqual(updated["quota"]["remaining"], 80)
+        self.assertNotIn("raw", updated["quota"])
         self.assertEqual(updated["last_result"], {"ok": True})
         self.assertEqual(updated["latency"]["results"], {"old": 100})
         self.assertEqual(updated["selected_node"], "old")
+
+    def test_quota_probe_failure_is_generic_and_does_not_leak_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+            profile = get_profile(config)
+            profile["source_url"] = "https://example.test/old.yaml"
+            store.save(config)
+            state = AppState(store)
+
+            with patch(
+                "app.service.fetch_subscription_info",
+                return_value={"ok": False, "error": "request failed for https://secret.example/token"},
+            ):
+                result = state.save_profile({
+                    "id": profile["id"],
+                    "source_url": "https://example.test/new.yaml",
+                })
+            quota = get_profile(state.load_config(), profile["id"])["quota"]
+
+        self.assertFalse(result["quota_available"])
+        self.assertEqual(quota["error"], "额度读取失败")
+        self.assertNotIn("secret.example", json.dumps(quota, ensure_ascii=False))
 
     def test_node_selection_must_be_confirmed_by_runtime(self) -> None:
         selector = {"name": "Proxy", "all": ["SG-A"], "selected": "SG-A", "now": "SG-A"}

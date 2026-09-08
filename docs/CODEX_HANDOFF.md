@@ -60,7 +60,7 @@ The UI intentionally exposes no separate refresh, reload, install, or verificati
 
 ## Current UI Notes
 
-- Subscription refresh, activation, region apply, latency test, and node selection are separate commands with distinct scopes.
+- Subscription refresh, activation, and latency test are separate commands. Region toggles and node selection are one local draft committed by one apply action.
 - Never activate a newly added subscription during deployment or migration.
 - Button feedback is shown as a floating notice and must not reserve blank space beside the buttons.
 - Only regions with at least one node in the current source subscription are displayed.
