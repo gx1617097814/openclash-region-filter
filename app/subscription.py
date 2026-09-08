@@ -111,6 +111,64 @@ def parse_subscription_userinfo(header: str) -> dict[str, Any]:
     }
 
 
+def _openclash_proxy_opener(config: dict[str, Any]) -> urllib.request.OpenerDirector | None:
+    openclash = config.get("openclash", {})
+    paths = [
+        str(openclash.get("runtime_config_path") or ""),
+        "/etc/openclash/openclash-region-filter.yaml",
+    ]
+    runtime: dict[str, Any] = {}
+    for value in dict.fromkeys(paths):
+        if not value:
+            continue
+        try:
+            runtime = load_yaml_text(Path(value).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if runtime:
+            break
+
+    port = runtime.get("mixed-port") or runtime.get("port")
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return None
+    if not 1 <= port <= 65535:
+        return None
+
+    proxy_url = f"http://127.0.0.1:{port}"
+    handlers: list[Any] = [urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})]
+    authentication = runtime.get("authentication") or []
+    if isinstance(authentication, str):
+        authentication = [authentication]
+    if isinstance(authentication, list) and authentication:
+        username, separator, password = str(authentication[0]).partition(":")
+        if separator and username:
+            manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+            manager.add_password(None, proxy_url, username, password)
+            handlers.append(urllib.request.ProxyBasicAuthHandler(manager))
+    return urllib.request.build_opener(*handlers)
+
+
+def _open_subscription(
+    request: urllib.request.Request,
+    timeout: int,
+    config: dict[str, Any] | None = None,
+) -> Any:
+    try:
+        return urllib.request.urlopen(request, timeout=timeout)
+    except urllib.error.HTTPError:
+        raise
+    except (OSError, urllib.error.URLError, TimeoutError) as direct_error:
+        opener = _openclash_proxy_opener(config or {})
+        if opener is None:
+            raise
+        try:
+            return opener.open(request, timeout=timeout)
+        except (OSError, urllib.error.URLError, TimeoutError) as proxy_error:
+            raise proxy_error from direct_error
+
+
 def fetch_subscription_info(config: dict[str, Any]) -> dict[str, Any]:
     subscription = config.get("subscription", {})
     source_url = str(subscription.get("source_url", "")).strip()
@@ -126,7 +184,7 @@ def fetch_subscription_info(config: dict[str, Any]) -> dict[str, Any]:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _open_subscription(request, timeout, config) as response:
             header = response.headers.get("subscription-userinfo") or ""
             if not header:
                 return {"ok": False, "error": "subscription-userinfo header is missing"}
@@ -144,12 +202,17 @@ def atomic_write(path: Path, content: str) -> None:
     os.replace(tmp, path)
 
 
-def fetch_subscription_yaml(source_url: str, timeout: int, user_agent: str) -> str:
-    text, _, _ = fetch_subscription_document(source_url, timeout, user_agent)
+def fetch_subscription_yaml(source_url: str, timeout: int, user_agent: str, config: dict[str, Any] | None = None) -> str:
+    text, _, _ = fetch_subscription_document(source_url, timeout, user_agent, config)
     return text
 
 
-def fetch_subscription_document(source_url: str, timeout: int, user_agent: str) -> tuple[str, str, int]:
+def fetch_subscription_document(
+    source_url: str,
+    timeout: int,
+    user_agent: str,
+    config: dict[str, Any] | None = None,
+) -> tuple[str, str, int]:
     request = urllib.request.Request(
         source_url,
         headers={
@@ -157,7 +220,7 @@ def fetch_subscription_document(source_url: str, timeout: int, user_agent: str) 
             "Accept": "application/x-yaml,text/yaml,text/plain,*/*",
         },
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with _open_subscription(request, timeout, config) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return (
             response.read().decode(charset, errors="replace"),
@@ -188,7 +251,12 @@ def refresh_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], Subscr
         )
 
     try:
-        source_text, userinfo_header, response_status = fetch_subscription_document(source_url, timeout, user_agent)
+        source_text, userinfo_header, response_status = fetch_subscription_document(
+            source_url,
+            timeout,
+            user_agent,
+            config,
+        )
         data = load_yaml_text(source_text)
         prepared_config = config_with_dynamic_regions(data, config)
         before_region_ids = {str(region.get("id")) for region in config.get("regions", [])}

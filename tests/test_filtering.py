@@ -7,7 +7,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import yaml
 
@@ -20,7 +20,13 @@ from app.config import ConfigStore, merge_regions
 from app.service import AppState, INDEX_HTML, automation_loop
 from app.mihomo import select_node, selector_status
 from app.profiles import get_profile, new_profile, normalize_profiles, runtime_config
-from app.subscription import InstallResult, install_filtered_config, parse_subscription_userinfo, refresh_subscription
+from app.subscription import (
+    InstallResult,
+    fetch_subscription_info,
+    install_filtered_config,
+    parse_subscription_userinfo,
+    refresh_subscription,
+)
 
 
 class FilteringTest(unittest.TestCase):
@@ -830,6 +836,32 @@ class FilteringTest(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.subscription_info["remaining"], 7)
         fetch.assert_called_once()
+
+    def test_subscription_request_falls_back_to_authenticated_openclash_proxy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_path = Path(tmpdir) / "runtime.yaml"
+            runtime_path.write_text(
+                yaml.safe_dump({"mixed-port": 7890, "authentication": ["local:secret"]}),
+                encoding="utf-8",
+            )
+            config = copy.deepcopy(DEFAULT_CONFIG)
+            config["openclash"]["runtime_config_path"] = str(runtime_path)
+            config["subscription"]["source_url"] = "https://example.test/sub.yaml"
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.status = 200
+            response.headers = {"subscription-userinfo": "upload=1; download=2; total=10; expire=0"}
+            opener = MagicMock()
+            opener.open.return_value = response
+
+            with patch("app.subscription.urllib.request.urlopen", side_effect=OSError("TLS failed")), \
+                 patch("app.subscription.urllib.request.build_opener", return_value=opener) as build:
+                result = fetch_subscription_info(config)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["remaining"], 7)
+        build.assert_called_once()
+        opener.open.assert_called_once()
 
 
 if __name__ == "__main__":
