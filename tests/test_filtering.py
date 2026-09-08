@@ -435,6 +435,34 @@ class FilteringTest(unittest.TestCase):
         self.assertEqual(len(payload["last_result"]["region_summary"]), 2)
         self.assertEqual(payload["last_result"]["node_count"], 2)
 
+    def test_recovered_connection_hides_stale_low_level_ssl_error(self) -> None:
+        config = normalize_profiles(copy.deepcopy(DEFAULT_CONFIG))
+        active = get_profile(config)
+        active["source_pending"] = True
+        active["quota"] = {"ok": True, "remaining": 100}
+        active["last_result"] = {
+            "ok": False,
+            "stage": "refresh",
+            "error": "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING]>",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ConfigStore(Path(tmpdir) / "config.json")
+            store.save(config)
+            state = AppState(store)
+            state.scan_cache[active["id"]] = {
+                "node_count": 1,
+                "region_counts": {"singapore": 1},
+                "regions": active["regions"],
+                "nodes": [{"name": "SG-A", "region_id": "singapore"}],
+            }
+            payload = state.state_payload()
+
+        self.assertTrue(payload["last_result"]["ok"])
+        self.assertTrue(payload["last_result"]["source_pending"])
+        self.assertTrue(payload["last_result"]["previous_refresh_failed"])
+        self.assertNotIn("SSL", json.dumps(payload["last_result"]))
+        self.assertIn("连接已恢复", payload["last_result"]["message"])
+
     def test_region_changes_use_cache_and_preserve_hidden_region_preferences(self) -> None:
         data = {
             "proxies": [
@@ -862,6 +890,17 @@ class FilteringTest(unittest.TestCase):
         self.assertEqual(result["remaining"], 7)
         build.assert_called_once()
         opener.open.assert_called_once()
+
+    def test_subscription_network_failure_is_reported_without_ssl_stack(self) -> None:
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["subscription"]["source_url"] = "https://example.test/sub.yaml"
+        config["openclash"]["runtime_config_path"] = "/missing/runtime.yaml"
+        with patch("app.subscription.urllib.request.urlopen", side_effect=OSError("SSL stack detail")):
+            result = fetch_subscription_info(config)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("已尝试直连", result["error"])
+        self.assertNotIn("SSL stack", result["error"])
 
 
 if __name__ == "__main__":

@@ -163,10 +163,22 @@ def _open_subscription(
         opener = _openclash_proxy_opener(config or {})
         if opener is None:
             raise
-        try:
-            return opener.open(request, timeout=timeout)
-        except (OSError, urllib.error.URLError, TimeoutError) as proxy_error:
-            raise proxy_error from direct_error
+        proxy_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                return opener.open(request, timeout=timeout)
+            except urllib.error.HTTPError:
+                raise
+            except (OSError, urllib.error.URLError, TimeoutError) as exc:
+                proxy_error = exc
+                if attempt == 0:
+                    time.sleep(0.25)
+        assert proxy_error is not None
+        raise proxy_error from direct_error
+
+
+def _network_error_message() -> str:
+    return "订阅连接失败；已尝试直连和 OpenClash 本机代理，请稍后重试"
 
 
 def fetch_subscription_info(config: dict[str, Any]) -> dict[str, Any]:
@@ -191,8 +203,8 @@ def fetch_subscription_info(config: dict[str, Any]) -> dict[str, Any]:
             info = parse_subscription_userinfo(header)
             info.update({"ok": True, "status": response.status, "checked_at": time.strftime("%Y-%m-%d %H:%M:%S")})
             return info
-    except (OSError, urllib.error.URLError, TimeoutError) as exc:
-        return {"ok": False, "error": str(exc)}
+    except (OSError, urllib.error.URLError, TimeoutError):
+        return {"ok": False, "error": _network_error_message()}
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -294,7 +306,19 @@ def refresh_subscription(config: dict[str, Any]) -> tuple[dict[str, Any], Subscr
             filter_result=filter_payload,
             subscription_info=subscription_info,
         )
-    except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+    except (OSError, urllib.error.URLError, TimeoutError):
+        return config, SubscriptionResult(
+            ok=False,
+            changed=False,
+            source_url=source_url,
+            cache_path=str(cache_path),
+            generated_at=None,
+            regions_added=[],
+            filter_result=None,
+            subscription_info=None,
+            error=_network_error_message(),
+        )
+    except ValueError as exc:
         return config, SubscriptionResult(
             ok=False,
             changed=False,

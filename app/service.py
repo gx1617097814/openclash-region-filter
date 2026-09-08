@@ -285,13 +285,28 @@ class AppState:
                 profile["last_result"] = self._cached_result(profile, scans.get(profile["id"], {}))
         selected = str(runtime_status.get("selected_node") or get_profile(config).get("selected_node") or "")
         active_profile = next(profile for profile in profiles if profile["id"] == config["active_subscription_id"])
+        display_result = active_profile.get("last_result")
+        error_text = str((display_result or {}).get("error") or "") if isinstance(display_result, dict) else ""
+        transient_error = any(token in error_text.lower() for token in (
+            "ssl", "urlopen", "timed out", "timeout", "connection reset", "unexpected eof",
+        ))
+        if (
+            transient_error
+            and active_profile.get("source_pending")
+            and bool((active_profile.get("quota") or {}).get("ok"))
+        ):
+            display_result = self._cached_result(active_profile, scans.get(active_profile["id"], {}))
+            if display_result:
+                display_result["message"] = "订阅连接已恢复；当前继续使用上次成功缓存，新地址尚未应用"
+                display_result["source_pending"] = True
+                display_result["previous_refresh_failed"] = True
         return {
             "config": {"active_subscription_id": config["active_subscription_id"], "subscriptions": profiles},
             "scans": scans,
             "selected_node": selected,
             "runtime_status": runtime_status,
             "operation": operation,
-            "last_result": sanitize_result_payload(active_profile.get("last_result")),
+            "last_result": sanitize_result_payload(display_result),
             "last_subscription_result": sanitize_result_payload(self.last_subscription_result),
             "last_install_result": sanitize_result_payload(self.last_install_result),
         }
